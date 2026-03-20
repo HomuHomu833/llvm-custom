@@ -5,11 +5,11 @@ on:
     inputs:
       version:
         description: "NDK Release version:"
-        default: "30-beta1"
+        default: "30"
         required: true
       revision:
         description: "NDK Release revision:"
-        default: ''
+        default: '-beta1'
         required: false
         type: string
       projects:
