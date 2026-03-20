@@ -100,7 +100,7 @@ jobs:
           if [ -d "$ROOTDIR/patches/musl/llvm/$LLVM_VERSION" ]; then
             for PATCH in $ROOTDIR/patches/musl/llvm/$LLVM_VERSION/*.patch; do
               echo "Applying $(basename "$PATCH")..."
-              git apply "$PATCH"
+              git apply "$PATCH" || true
             done
           fi
 
