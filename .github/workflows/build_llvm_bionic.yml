@@ -294,7 +294,7 @@ jobs:
           tar -c ${tarball_name} | xz -T0 -v >${tarball_name}.tar.xz
 
       - name: Upload release
-        uses: ncipollo/release-action@v1.20.0
+        uses: ncipollo/release-action@v1.21.0
         with:
           tag: "llvm-r${{inputs.version}}"
           artifacts: ${{env.tarball_name}}.tar.xz
