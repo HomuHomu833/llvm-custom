@@ -1,0 +1,42 @@
+From e57f38ddd82060bfcbec6eae524f97a77927db6d Mon Sep 17 00:00:00 2001
+From: Homura <egzozu.be.bas@gmail.com>
+Date: Sat, 21 Mar 2026 17:22:59 +0300
+Subject: [PATCH] [llvm-exegesis] Fix musl build
+
+We should not include both linux/prctl.h and sys/prctl.h. This works
+with glibc because the latter includes the former, but breaks with musl
+because the latter redeclares the contents of the former, resulting in:
+
+```
+/usr/local/aarch64-linux-musl/include/sys/prctl.h:88:8: error:
+redefinition of 'struct prctl_mm_map'
+       88 | struct prctl_mm_map {
+          |        ^~~~~~~~~~~~
+In file included from
+/checkout/src/llvm-project/llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp:13:
+/usr/local/aarch64-linux-musl/include/linux/prctl.h:134:8: note:
+previous definition of 'struct prctl_mm_map'
+      134 | struct prctl_mm_map {
+          |        ^~~~~~~~~~~~
+```
+---
+ llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp b/llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp
+index a1eb5a46f..ba019f94e 100644
+--- a/llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp
++++ b/llvm/tools/llvm-exegesis/lib/AArch64/Target.cpp
+@@ -10,8 +10,7 @@
+ #include "AArch64RegisterInfo.h"
+ 
+ #if defined(__aarch64__) && defined(__linux__)
+-#include <linux/prctl.h> // For PR_PAC_* constants
+-#include <sys/prctl.h>
++#include <sys/prctl.h> // For PR_PAC_* constants
+ #ifndef PR_PAC_SET_ENABLED_KEYS
+ #define PR_PAC_SET_ENABLED_KEYS 60
+ #endif
+-- 
+2.53.0.windows.1
+
