@@ -9,7 +9,6 @@ on:
         required: true
       revision:
         description: "NDK Release revision:"
-        default: '-beta1'
         required: false
         type: string
       projects:
