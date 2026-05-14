@@ -142,7 +142,7 @@ jobs:
               mkdir -p "${TARGET_BUILD_DIR}"/zlib
               (
                   cd ${ROOTDIR}/zlib
-                  ./configure --prefix="${TARGET_INSTALL_DIR}" --static
+                  ./configure --host=${AUTOCONF_HOST} --prefix="${TARGET_INSTALL_DIR}" --static
                   make -j"$(nproc --all)" install
               )
           fi
@@ -224,51 +224,6 @@ jobs:
               )
           fi
 
-          if ! test -f "${TARGET_INSTALL_DIR}/lib/libncurses.a"; then
-              if ! test -d ncurses; then
-                  curl -LkSs https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz | gzip -d | tar -x
-                  mv ncurses-6.4 ncurses
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}/ncurses"
-              (
-                  cd "${TARGET_BUILD_DIR}/ncurses"
-                  ${ROOTDIR}/ncurses/configure \
-                      --host=${AUTOCONF_HOST} \
-                      --prefix="${TARGET_INSTALL_DIR}" \
-                      --without-ada \
-                      --without-manpages \
-                      --without-progs \
-                      --without-tests \
-                      --without-debug \
-                      --enable-static \
-                      --disable-shared \
-                      --with-normal \
-                      --without-cxx-binding \
-                      --without-gpm \
-                      --disable-nls
-                  make -j$(nproc --all) install
-              )
-          fi
-
-          if ! test -f "${TARGET_INSTALL_DIR}/lib/libedit.a"; then
-              if ! test -d libedit; then
-                  curl -LkSs https://thrysoee.dk/editline/libedit-20230828-3.1.tar.gz | gzip -d | tar -x
-                  mv libedit-20230828-3.1 libedit
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}/libedit"
-              (
-                  cd "${TARGET_BUILD_DIR}/libedit"
-                  CFLAGS="-I${TARGET_INSTALL_DIR}/include" \
-                  LDFLAGS="-L${TARGET_INSTALL_DIR}/lib" \
-                  ${ROOTDIR}/libedit/configure \
-                      --host=${AUTOCONF_HOST} \
-                      --prefix="${TARGET_INSTALL_DIR}" \
-                      --enable-static \
-                      --disable-shared
-                  make -j$(nproc --all) install
-              )
-          fi
-
           if ! test -f "${TARGET_INSTALL_DIR}/lib/libxml2.a"; then
               if ! test -d libxml2; then
                   curl -LkSs https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.5.tar.xz | xz -d | tar -x
@@ -289,6 +244,24 @@ jobs:
                       --without-icu \
                       --with-zlib="${TARGET_INSTALL_DIR}" \
                       --without-lzma
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libffi.a"; then
+              if ! test -d libffi; then
+                  curl -LkSs https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz | gzip -d | tar -x
+                  mv libffi-3.4.6 libffi
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/libffi"
+              (
+                  cd "${TARGET_BUILD_DIR}/libffi"
+                  ${ROOTDIR}/libffi/configure \
+                      --host=${AUTOCONF_HOST} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --disable-docs
                   make -j$(nproc --all) install
               )
           fi
@@ -363,27 +336,25 @@ jobs:
             -DLLDB_ENABLE_LZMA=ON \
             -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
-            -DLLDB_ENABLE_CURSES=ON \
-            -DCURSES_INCLUDE_PATH="${TARGET_INSTALL_DIR}/include" \
-            -DCURSES_LIBRARY="${TARGET_INSTALL_DIR}/lib/libncurses.a" \
-            -DLLDB_ENABLE_LIBEDIT=ON \
-            -DLibEdit_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
-            -DLibEdit_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libedit.a" \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
             -DLLDB_ENABLE_LIBXML2=ON \
             -DLIBXML2_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/libxml2" \
             -DLIBXML2_LIBRARY="${TARGET_INSTALL_DIR}/lib/libxml2.a" \
             -DLLVM_PARALLEL_LINK_JOBS=1 \
             -DLLVM_ENABLE_LIBCXX=OFF \
             -DLLVM_ENABLE_LLVM_LIBC=OFF \
-            -DLLVM_ENABLE_UNWIND_TABLES=OFF \
+            -DLLVM_ENABLE_UNWIND_TABLES=ON \
             -DLLVM_ENABLE_LTO=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_MODULES=OFF \
             -DLLVM_ENABLE_PEDANTIC=OFF \
-            -DLLVM_ENABLE_FFI=OFF \
+            -DLLVM_ENABLE_FFI=ON \
+            -DFFI_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
+            -DFFI_LIBRARY_DIR="${TARGET_INSTALL_DIR}/lib" \
             -DLLVM_ENABLE_LIBPFM=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_LIBXML2=ON \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
             -DLLVM_VERSION_SUFFIX="" \
