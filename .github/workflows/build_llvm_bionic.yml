@@ -27,7 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         # riscv64-linux-android
-        target: [aarch64-linux-android, armv7a-linux-androideabi, i686-linux-android, x86_64-linux-android]
+        include:
+          - target: aarch64-linux-android
+            abi: arm64-v8a
+          - target: armv7a-linux-androideabi
+            abi: armeabi-v7a
+          - target: i686-linux-android
+            abi: x86
+          - target: x86_64-linux-android
+            abi: x86_64
     runs-on: ubuntu-24.04
     env:
       ANDROID_PLATFORM: 25
@@ -284,7 +292,10 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM;RISCV" \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_CROSSCOMPILING=True \
-            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_ANDROID_ARCH_ABI="${{ matrix.abi }}" \
+            -DANDROID_STL=c++_static \
             -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${ANDROID_PLATFORM} \
             -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
             -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++" \
