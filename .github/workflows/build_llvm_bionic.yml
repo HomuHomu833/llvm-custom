@@ -142,7 +142,7 @@ jobs:
               mkdir -p "${TARGET_BUILD_DIR}"/zlib
               (
                   cd ${ROOTDIR}/zlib
-                  ./configure CFLAGS="-fPIC" --prefix="${TARGET_INSTALL_DIR}" --static
+                  CFLAGS="-fPIC" ./configure --prefix="${TARGET_INSTALL_DIR}" --static
                   make -j"$(nproc --all)" install
               )
           fi
