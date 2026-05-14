@@ -129,7 +129,7 @@ jobs:
         run: sudo apt install -y ninja-build
 
       - name: Build dependencies
-        run : |
+        run: |
           TOOLCHAIN=${PWD}/zig-as-llvm
           export CC=${TOOLCHAIN}/bin/cc
           export CXX=${TOOLCHAIN}/bin/c++

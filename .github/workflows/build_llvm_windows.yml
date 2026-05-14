@@ -112,7 +112,7 @@ jobs:
         run: sudo apt install -y ninja-build
 
       - name: Build dependencies
-        run : |
+        run: |
           TOOLCHAIN=${PWD}/llvm-mingw
           export CC=${TOOLCHAIN}/bin/${{matrix.target}}-clang
           export CXX=${TOOLCHAIN}/bin/${{matrix.target}}-clang++

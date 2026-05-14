@@ -15,7 +15,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -112,11 +112,16 @@ jobs:
         run: sudo apt install -y ninja-build
 
       - name: Build dependencies
-        run : |
+        run: |
           if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
             ANDROID_PLATFORM=35
           else
             ANDROID_PLATFORM=${ANDROID_PLATFORM}
+          fi
+
+          AUTOCONF_HOST=${{matrix.target}}
+          if [ "${{matrix.target}}" = "armv7a-linux-androideabi" ]; then
+            AUTOCONF_HOST="arm-linux-androideabi"
           fi
 
           TOOLCHAIN=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64
@@ -157,7 +162,7 @@ jobs:
               (
                   cd "${TARGET_BUILD_DIR}/zstd"
 
-                  $CC $CFLAGS -c \
+                  $CC $CFLAGS -fPIC -c \
                       "${ROOTDIR}/zstd/lib/decompress/zstd_ddict.c" \
                       "${ROOTDIR}/zstd/lib/decompress/zstd_decompress.c" \
                       "${ROOTDIR}/zstd/lib/decompress/huf_decompress.c" \
@@ -196,6 +201,99 @@ jobs:
               )
           fi
 
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/liblzma.a"; then
+              if ! test -d xz; then
+                  curl -LkSs https://github.com/tukaani-project/xz/releases/download/v5.4.5/xz-5.4.5.tar.gz | gzip -d | tar -x
+                  mv xz-5.4.5 xz
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/xz"
+              (
+                  cd "${TARGET_BUILD_DIR}/xz"
+                  ${ROOTDIR}/xz/configure \
+                      --host=${AUTOCONF_HOST} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --disable-xz \
+                      --disable-xzdec \
+                      --disable-lzmadec \
+                      --disable-lzmainfo \
+                      --disable-scripts \
+                      --disable-doc \
+                      --disable-nls
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libncurses.a"; then
+              if ! test -d ncurses; then
+                  curl -LkSs https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz | gzip -d | tar -x
+                  mv ncurses-6.4 ncurses
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/ncurses"
+              (
+                  cd "${TARGET_BUILD_DIR}/ncurses"
+                  ${ROOTDIR}/ncurses/configure \
+                      --host=${AUTOCONF_HOST} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --without-ada \
+                      --without-manpages \
+                      --without-progs \
+                      --without-tests \
+                      --without-debug \
+                      --enable-static \
+                      --disable-shared \
+                      --with-normal \
+                      --without-cxx-binding \
+                      --without-gpm \
+                      --disable-nls
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libedit.a"; then
+              if ! test -d libedit; then
+                  curl -LkSs https://thrysoee.dk/editline/libedit-20230828-3.1.tar.gz | gzip -d | tar -x
+                  mv libedit-20230828-3.1 libedit
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/libedit"
+              (
+                  cd "${TARGET_BUILD_DIR}/libedit"
+                  CFLAGS="-I${TARGET_INSTALL_DIR}/include" \
+                  LDFLAGS="-L${TARGET_INSTALL_DIR}/lib" \
+                  ${ROOTDIR}/libedit/configure \
+                      --host=${AUTOCONF_HOST} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libxml2.a"; then
+              if ! test -d libxml2; then
+                  curl -LkSs https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.5.tar.xz | xz -d | tar -x
+                  mv libxml2-2.11.5 libxml2
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/libxml2"
+              (
+                  cd "${TARGET_BUILD_DIR}/libxml2"
+                  CFLAGS="-I${TARGET_INSTALL_DIR}/include" \
+                  LDFLAGS="-L${TARGET_INSTALL_DIR}/lib" \
+                  ${ROOTDIR}/libxml2/configure \
+                      --host=${AUTOCONF_HOST} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --without-python \
+                      --without-iconv \
+                      --without-icu \
+                      --with-zlib="${TARGET_INSTALL_DIR}" \
+                      --without-lzma
+                  make -j$(nproc --all) install
+              )
+          fi
+
       - name: Build LLVM
         run: |
           if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
@@ -230,12 +328,18 @@ jobs:
             -Dzstd_LIBRARY="${TARGET_INSTALL_DIR}/lib/libzstd.a" \
             -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_STATIC=ON \
-            -DCLANG_ENABLE_ARCMT=OFF \
-            -DLLVM_LINK_LLVM_DYLIB=OFF \
-            -DLIBCLANG_BUILD_STATIC=ON \
-            -DCMAKE_SKIP_INSTALL_RPATH=TRUE \
+            -DLLVM_BUILD_LLVM_DYLIB=ON \
+            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DLLVM_ENABLE_PIC=ON \
+            -DLLVM_ENABLE_RTTI=ON \
+            -DLLVM_ENABLE_EH=ON \
+            -DCMAKE_INSTALL_RPATH="\$ORIGIN/../lib" \
+            -DCMAKE_BUILD_RPATH_USE_ORIGIN=ON \
+            -DCMAKE_SKIP_INSTALL_RPATH=FALSE \
+            -DLLVM_BUILD_STATIC=OFF \
             -DBUILD_SHARED_LIBS=OFF \
+            -DLIBCLANG_BUILD_STATIC=OFF \
+            -DCLANG_ENABLE_ARCMT=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_BUILD_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -253,13 +357,26 @@ jobs:
             -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
+            -DLLDB_ENABLE_PYTHON=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
+            -DLLDB_BUILD_FRAMEWORK=OFF \
+            -DLLDB_ENABLE_LZMA=ON \
+            -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
+            -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
+            -DLLDB_ENABLE_CURSES=ON \
+            -DCURSES_INCLUDE_PATH="${TARGET_INSTALL_DIR}/include" \
+            -DCURSES_LIBRARY="${TARGET_INSTALL_DIR}/lib/libncurses.a" \
+            -DLLDB_ENABLE_LIBEDIT=ON \
+            -DLibEdit_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
+            -DLibEdit_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libedit.a" \
+            -DLLDB_ENABLE_LIBXML2=ON \
+            -DLIBXML2_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/libxml2" \
+            -DLIBXML2_LIBRARY="${TARGET_INSTALL_DIR}/lib/libxml2.a" \
             -DLLVM_PARALLEL_LINK_JOBS=1 \
-            -DLLVM_ENABLE_PIC=OFF \
             -DLLVM_ENABLE_LIBCXX=OFF \
             -DLLVM_ENABLE_LLVM_LIBC=OFF \
             -DLLVM_ENABLE_UNWIND_TABLES=OFF \
-            -DLLVM_ENABLE_EH=OFF \
-            -DLLVM_ENABLE_RTTI=OFF \
             -DLLVM_ENABLE_LTO=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_MODULES=OFF \
@@ -279,12 +396,19 @@ jobs:
 
       - name: Strip and Check
         run: |
+          STRIP="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+
           find llvm-${{matrix.target}}/bin -type f ! -lname '*' | while IFS= read -r file; do
             if file "$file" | grep -q ELF; then
-              "$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -s "$file"
+              "$STRIP" -s "$file"
             fi
           done
+          find llvm-${{matrix.target}}/lib -maxdepth 1 \( -name '*.so' -o -name '*.so.*' \) | while IFS= read -r sofile; do
+            "$STRIP" --strip-debug "$sofile"
+          done
+
           file llvm-${{matrix.target}}/bin/*
+          file llvm-${{matrix.target}}/lib/*.so 2>/dev/null || true
           tree llvm-${{matrix.target}}
 
       - name: Compress
