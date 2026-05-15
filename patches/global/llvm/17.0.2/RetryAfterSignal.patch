@@ -11,3 +11,14 @@
    if (m_secondary_fd >= 0)
      return llvm::Error::success();
  
+--- a/lldb/source/Host/posix/FileSystemPosix.cpp
++++ b/lldb/source/Host/posix/FileSystemPosix.cpp
+@@ -77,5 +77,7 @@ FILE *FileSystem::Fopen(const char *path, const char *mode) {
+ 
+ int FileSystem::Open(const char *path, int flags, int mode) {
+-  return llvm::sys::RetryAfterSignal(-1, ::open, path, flags, mode);
++  return llvm::sys::RetryAfterSignal(-1, [&] {
++    return ::open(path, flags, mode);
++  });
+ }
+ 
