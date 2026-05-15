@@ -149,6 +149,14 @@ jobs:
                   -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
                   -DANDROID_ABI="${{matrix.abi}}" \
                   -DANDROID_PLATFORM=${{matrix.platform}} \
+                  -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+                  -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++" \
+                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+                  -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
+                  -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
+                  -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
+                  -DCMAKE_RANLIB="${TOOLCHAIN}/bin/llvm-ranlib" \
+                  -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
                   -DCMAKE_BUILD_TYPE=MinSizeRel \
                   -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
                   -DZSTD_BUILD_SHARED=OFF \
