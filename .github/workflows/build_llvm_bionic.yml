@@ -139,57 +139,26 @@ jobs:
 
           rm -rf build output/ zstd/
 
-          if ! test -f "${TARGET_INSTALL_DIR}"/lib/libzstd.a; then
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libzstd.a"; then
               if ! test -d zstd; then
                   curl https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz -LkSs | gzip -d | tar -x
                   mv zstd-1.5.6 zstd
               fi
 
-              mkdir -p "${TARGET_INSTALL_DIR}/include"
-              mkdir -p "${TARGET_INSTALL_DIR}/lib"
-              mkdir -p "${TARGET_BUILD_DIR}/zstd"
+              cmake -S "${ROOTDIR}/zstd/build/cmake" -B "${TARGET_BUILD_DIR}/zstd" \
+                  -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
+                  -DANDROID_ABI="${{matrix.abi}}" \
+                  -DANDROID_PLATFORM=${{matrix.platform}} \
+                  -DCMAKE_BUILD_TYPE=MinSizeRel \
+                  -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
+                  -DZSTD_BUILD_SHARED=OFF \
+                  -DZSTD_BUILD_STATIC=ON \
+                  -DZSTD_BUILD_PROGRAMS=OFF \
+                  -DZSTD_BUILD_TESTS=OFF \
+                  -DZSTD_BUILD_CONTRIB=OFF \
+                  -DZSTD_MULTITHREAD_SUPPORT=ON
 
-              cp "${ROOTDIR}/zstd/lib/zstd.h" "$TARGET_INSTALL_DIR/include/zstd.h"
-              (
-                  cd "${TARGET_BUILD_DIR}/zstd"
-
-                  $CC $CFLAGS -fPIC -c \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_ddict.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/huf_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/huf_decompress_amd64.S" \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_decompress_block.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstdmt_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_opt.c" \
-                      "${ROOTDIR}/zstd/lib/compress/hist.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_ldm.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_fast.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_literals.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_double_fast.c" \
-                      "${ROOTDIR}/zstd/lib/compress/huf_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/fse_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_lazy.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_sequences.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_superblock.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_compress.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/entropy_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/pool.c" \
-                      "${ROOTDIR}/zstd/lib/common/threading.c" \
-                      "${ROOTDIR}/zstd/lib/common/zstd_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/xxhash.c" \
-                      "${ROOTDIR}/zstd/lib/common/debug.c" \
-                      "${ROOTDIR}/zstd/lib/common/fse_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/common/error_private.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/zdict.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/divsufsort.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/fastcover.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/cover.c"
-
-                  $AR rcs "${TARGET_INSTALL_DIR}/lib/libzstd.a" "${TARGET_BUILD_DIR}"/zstd/*.o
-              )
+              cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
 
           if ! test -f "${TARGET_INSTALL_DIR}/lib/liblzma.a"; then
