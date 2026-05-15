@@ -162,7 +162,7 @@ jobs:
               cmake -S "${ROOTDIR}/zstd/build/cmake" -B "${TARGET_BUILD_DIR}/zstd" \
                   -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/cc" \
                   -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/c++" \
-                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/cc \
+                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/cc" \
                   -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
                   -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/objcopy" \
                   -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
