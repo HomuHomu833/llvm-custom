@@ -299,6 +299,7 @@ jobs:
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DHAVE_LIBZ=1 \
             -DZLIB_LIBRARY="${TARGET_INSTALL_DIR}/lib/libz.a" \
             -DZLIB_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
