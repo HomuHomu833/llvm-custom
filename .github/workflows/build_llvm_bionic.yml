@@ -30,15 +30,18 @@ jobs:
         include:
           - target: aarch64-linux-android
             abi: arm64-v8a
+            platform: 25
           - target: armv7a-linux-androideabi
             abi: armeabi-v7a
+            platform: 25
           - target: i686-linux-android
             abi: x86
+            platform: 25
           - target: x86_64-linux-android
             abi: x86_64
+            platform: 25
     runs-on: ubuntu-24.04
     env:
-      ANDROID_PLATFORM: 25
       ROOTDIR: ${{github.workspace}}
       TARGET_BUILD_DIR: ${{github.workspace}}/build/${{matrix.target}}
       TARGET_INSTALL_DIR: ${{github.workspace}}/output/${{matrix.target}}
@@ -120,20 +123,14 @@ jobs:
 
       - name: Build dependencies
         run: |
-          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
-            ANDROID_PLATFORM=35
-          else
-            ANDROID_PLATFORM=${ANDROID_PLATFORM}
-          fi
-
           AUTOCONF_HOST=${{matrix.target}}
           if [ "${{matrix.target}}" = "armv7a-linux-androideabi" ]; then
             AUTOCONF_HOST="arm-linux-androideabi"
           fi
 
           TOOLCHAIN=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang
-          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++
+          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang
+          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++
           export LD=${TOOLCHAIN}/bin/ld
           export OBJCOPY=${TOOLCHAIN}/bin/llvm-objcopy
           export AR=${TOOLCHAIN}/bin/llvm-ar
@@ -276,12 +273,6 @@ jobs:
 
       - name: Build LLVM
         run: |
-          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
-            ANDROID_PLATFORM=35
-          else
-            ANDROID_PLATFORM=${ANDROID_PLATFORM}
-          fi
-
           ANDROID_NDK_HOME=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}
           ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
           TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
@@ -295,11 +286,12 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
             -DCMAKE_ANDROID_ARCH_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM=${{matrix.platform}} \
             -DANDROID_STL=c++_static \
-            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${ANDROID_PLATFORM} \
-            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
-            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++" \
-            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
+            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${{matrix.platform}} \
+            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++" \
+            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
             -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
             -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
             -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
@@ -307,6 +299,8 @@ jobs:
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DZLIB_LIBRARY="${TARGET_INSTALL_DIR}/lib/libz.a" \
+            -DZLIB_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
             -Dzstd_LIBRARY="${TARGET_INSTALL_DIR}/lib/libzstd.a" \
             -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
@@ -347,6 +341,9 @@ jobs:
             -DLLDB_ENABLE_LZMA=ON \
             -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
+            -DLIBLZMA_HAS_AUTO_DECODER=1 \
+            -DLIBLZMA_HAS_EASY_ENCODER=1 \
+            -DLIBLZMA_HAS_LZMA_PRESET=1 \
             -DLLDB_ENABLE_CURSES=OFF \
             -DLLDB_ENABLE_LIBEDIT=OFF \
             -DLLDB_ENABLE_LIBXML2=ON \
@@ -361,8 +358,9 @@ jobs:
             -DLLVM_ENABLE_MODULES=OFF \
             -DLLVM_ENABLE_PEDANTIC=OFF \
             -DLLVM_ENABLE_FFI=ON \
-            -DFFI_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
-            -DFFI_LIBRARY_DIR="${TARGET_INSTALL_DIR}/lib" \
+            -DFFI_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
+            -DFFI_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libffi.a" \
+            -DHAVE_FFI_CALL=1 \
             -DLLVM_ENABLE_LIBPFM=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
             -DLLVM_ENABLE_LIBXML2=ON \
