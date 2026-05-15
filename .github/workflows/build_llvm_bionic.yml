@@ -241,7 +241,7 @@ jobs:
             -DCMAKE_CROSSCOMPILING=True \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
-            -DCMAKE_ANDROID_ARCH_ABI="${{ matrix.abi }}" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
             -DANDROID_PLATFORM=${{matrix.platform}} \
             -DANDROID_STL=c++_static \
             -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${{matrix.platform}} \
