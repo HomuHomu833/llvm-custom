@@ -27,10 +27,21 @@ jobs:
       fail-fast: false
       matrix:
         # riscv64-linux-android
-        target: [aarch64-linux-android, armv7a-linux-androideabi, i686-linux-android, x86_64-linux-android]
+        include:
+          - target: aarch64-linux-android
+            abi: arm64-v8a
+            platform: 25
+          - target: armv7a-linux-androideabi
+            abi: armeabi-v7a
+            platform: 25
+          - target: i686-linux-android
+            abi: x86
+            platform: 25
+          - target: x86_64-linux-android
+            abi: x86_64
+            platform: 25
     runs-on: ubuntu-24.04
     env:
-      ANDROID_PLATFORM: 25
       ROOTDIR: ${{github.workspace}}
       TARGET_BUILD_DIR: ${{github.workspace}}/build/${{matrix.target}}
       TARGET_INSTALL_DIR: ${{github.workspace}}/output/${{matrix.target}}
@@ -112,92 +123,42 @@ jobs:
 
       - name: Build dependencies
         run: |
-          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
-            ANDROID_PLATFORM=35
-          else
-            ANDROID_PLATFORM=${ANDROID_PLATFORM}
-          fi
-
           AUTOCONF_HOST=${{matrix.target}}
           if [ "${{matrix.target}}" = "armv7a-linux-androideabi" ]; then
             AUTOCONF_HOST="arm-linux-androideabi"
           fi
 
           TOOLCHAIN=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang
-          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++
+          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang
+          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++
           export LD=${TOOLCHAIN}/bin/ld
           export OBJCOPY=${TOOLCHAIN}/bin/llvm-objcopy
           export AR=${TOOLCHAIN}/bin/llvm-ar
           export RANLIB=${TOOLCHAIN}/bin/llvm-ranlib
           export STRIP=${TOOLCHAIN}/bin/llvm-strip
 
-          rm -rf build output/ zlib/ zstd/
+          rm -rf build output/ zstd/
 
-          if ! test -f "${TARGET_INSTALL_DIR}"/lib/libz.a; then
-              if ! test -d zlib; then
-                  curl -LkSs https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x
-                  mv zlib-1.3.1 zlib
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}"/zlib
-              (
-                  cd ${ROOTDIR}/zlib
-                  ./configure --prefix="${TARGET_INSTALL_DIR}" --static
-                  make -j"$(nproc --all)" install
-              )
-          fi
-
-          if ! test -f "${TARGET_INSTALL_DIR}"/lib/libzstd.a; then
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libzstd.a"; then
               if ! test -d zstd; then
                   curl https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz -LkSs | gzip -d | tar -x
                   mv zstd-1.5.6 zstd
               fi
 
-              mkdir -p "${TARGET_INSTALL_DIR}/include"
-              mkdir -p "${TARGET_INSTALL_DIR}/lib"
-              mkdir -p "${TARGET_BUILD_DIR}/zstd"
+              cmake -S "${ROOTDIR}/zstd/build/cmake" -B "${TARGET_BUILD_DIR}/zstd" \
+                  -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
+                  -DANDROID_ABI="${{matrix.abi}}" \
+                  -DANDROID_PLATFORM=${{matrix.platform}} \
+                  -DCMAKE_BUILD_TYPE=MinSizeRel \
+                  -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
+                  -DZSTD_BUILD_SHARED=OFF \
+                  -DZSTD_BUILD_STATIC=ON \
+                  -DZSTD_BUILD_PROGRAMS=OFF \
+                  -DZSTD_BUILD_TESTS=OFF \
+                  -DZSTD_BUILD_CONTRIB=OFF \
+                  -DZSTD_MULTITHREAD_SUPPORT=ON
 
-              cp "${ROOTDIR}/zstd/lib/zstd.h" "$TARGET_INSTALL_DIR/include/zstd.h"
-              (
-                  cd "${TARGET_BUILD_DIR}/zstd"
-
-                  $CC $CFLAGS -fPIC -c \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_ddict.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/huf_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/decompress/huf_decompress_amd64.S" \
-                      "${ROOTDIR}/zstd/lib/decompress/zstd_decompress_block.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstdmt_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_opt.c" \
-                      "${ROOTDIR}/zstd/lib/compress/hist.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_ldm.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_fast.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_literals.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_double_fast.c" \
-                      "${ROOTDIR}/zstd/lib/compress/huf_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/fse_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_lazy.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_sequences.c" \
-                      "${ROOTDIR}/zstd/lib/compress/zstd_compress_superblock.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_compress.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/deprecated/zbuff_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/entropy_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/pool.c" \
-                      "${ROOTDIR}/zstd/lib/common/threading.c" \
-                      "${ROOTDIR}/zstd/lib/common/zstd_common.c" \
-                      "${ROOTDIR}/zstd/lib/common/xxhash.c" \
-                      "${ROOTDIR}/zstd/lib/common/debug.c" \
-                      "${ROOTDIR}/zstd/lib/common/fse_decompress.c" \
-                      "${ROOTDIR}/zstd/lib/common/error_private.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/zdict.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/divsufsort.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/fastcover.c" \
-                      "${ROOTDIR}/zstd/lib/dictBuilder/cover.c"
-
-                  $AR rcs "${TARGET_INSTALL_DIR}/lib/libzstd.a" "${TARGET_BUILD_DIR}"/zstd/*.o
-              )
+              cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
 
           if ! test -f "${TARGET_INSTALL_DIR}/lib/liblzma.a"; then
@@ -268,12 +229,6 @@ jobs:
 
       - name: Build LLVM
         run: |
-          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
-            ANDROID_PLATFORM=35
-          else
-            ANDROID_PLATFORM=${ANDROID_PLATFORM}
-          fi
-
           ANDROID_NDK_HOME=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}
           ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
           TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
@@ -284,11 +239,15 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM;RISCV" \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_CROSSCOMPILING=True \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${ANDROID_PLATFORM} \
-            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
-            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++" \
-            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM=${{matrix.platform}} \
+            -DANDROID_STL=c++_static \
+            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${{matrix.platform}} \
+            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++" \
+            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
             -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
             -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
             -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
@@ -336,6 +295,9 @@ jobs:
             -DLLDB_ENABLE_LZMA=ON \
             -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
+            -DLIBLZMA_HAS_AUTO_DECODER=1 \
+            -DLIBLZMA_HAS_EASY_ENCODER=1 \
+            -DLIBLZMA_HAS_LZMA_PRESET=1 \
             -DLLDB_ENABLE_CURSES=OFF \
             -DLLDB_ENABLE_LIBEDIT=OFF \
             -DLLDB_ENABLE_LIBXML2=ON \
@@ -350,8 +312,9 @@ jobs:
             -DLLVM_ENABLE_MODULES=OFF \
             -DLLVM_ENABLE_PEDANTIC=OFF \
             -DLLVM_ENABLE_FFI=ON \
-            -DFFI_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
-            -DFFI_LIBRARY_DIR="${TARGET_INSTALL_DIR}/lib" \
+            -DFFI_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
+            -DFFI_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libffi.a" \
+            -DHAVE_FFI_CALL=1 \
             -DLLVM_ENABLE_LIBPFM=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
             -DLLVM_ENABLE_LIBXML2=ON \
