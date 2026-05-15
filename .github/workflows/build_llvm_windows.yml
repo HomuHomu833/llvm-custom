@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -104,8 +104,8 @@ jobs:
 
       - name: Setup llvm-mingw
         run: |
-          curl -LkSs https://github.com/mstorsjo/llvm-mingw/releases/download/20250924/llvm-mingw-20250924-ucrt-ubuntu-22.04-x86_64.tar.xz | xz -d | tar -x
-          mv llvm-mingw-20250924-ucrt-ubuntu-22.04-x86_64 llvm-mingw
+          curl -LkSs https://github.com/mstorsjo/llvm-mingw/releases/download/20260505/llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64.tar.xz | xz -d | tar -x
+          mv llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64 llvm-mingw
 
       - name: Install dependencies
         run: sudo apt install -y ninja-build
@@ -159,7 +159,73 @@ jobs:
             -DCMAKE_RANLIB=$RANLIB \
             -DCMAKE_STRIP=$STRIP \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-            cmake --build "${TARGET_BUILD_DIR}/zstd" --target install
+          cmake --build "${TARGET_BUILD_DIR}/zstd" --target install
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/liblzma.a"; then
+              if ! test -d xz; then
+                  curl -LkSs https://github.com/tukaani-project/xz/releases/download/v5.4.5/xz-5.4.5.tar.gz | gzip -d | tar -x
+                  mv xz-5.4.5 xz
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/xz"
+              (
+                  cd "${TARGET_BUILD_DIR}/xz"
+                  ${ROOTDIR}/xz/configure \
+                      --host=${{matrix.target}} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --disable-xz \
+                      --disable-xzdec \
+                      --disable-lzmadec \
+                      --disable-lzmainfo \
+                      --disable-scripts \
+                      --disable-doc \
+                      --disable-nls
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libxml2.a"; then
+              if ! test -d libxml2; then
+                  curl -LkSs https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.5.tar.xz | xz -d | tar -x
+                  mv libxml2-2.11.5 libxml2
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/libxml2"
+              (
+                  cd "${TARGET_BUILD_DIR}/libxml2"
+                  CFLAGS="-I${TARGET_INSTALL_DIR}/include" \
+                  LDFLAGS="-L${TARGET_INSTALL_DIR}/lib" \
+                  ${ROOTDIR}/libxml2/configure \
+                      --host=${{matrix.target}} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --without-python \
+                      --without-iconv \
+                      --without-icu \
+                      --with-zlib="${TARGET_INSTALL_DIR}" \
+                      --without-lzma
+                  make -j$(nproc --all) install
+              )
+          fi
+
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libffi.a"; then
+              if ! test -d libffi; then
+                  curl -LkSs https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz | gzip -d | tar -x
+                  mv libffi-3.4.6 libffi
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}/libffi"
+              (
+                  cd "${TARGET_BUILD_DIR}/libffi"
+                  ${ROOTDIR}/libffi/configure \
+                      --host=${{matrix.target}} \
+                      --prefix="${TARGET_INSTALL_DIR}" \
+                      --enable-static \
+                      --disable-shared \
+                      --disable-docs
+                  make -j$(nproc --all) install
+              )
+          fi
 
       - name: Build LLVM
         run: |
@@ -181,19 +247,21 @@ jobs:
             -DCMAKE_AR="${TOOLCHAIN}/bin/${{matrix.target}}-ar" \
             -DCMAKE_RANLIB="${TOOLCHAIN}/bin/${{matrix.target}}-ranlib" \
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/${{matrix.target}}-strip" \
-            -DCMAKE_C_FLAGS="-static" \
-            -DCMAKE_CXX_FLAGS="-static" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
+            -Dzstd_LIBRARY="${TARGET_INSTALL_DIR}/lib/libzstd.a" \
+            -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_STATIC=ON \
-            -DCLANG_ENABLE_ARCMT=OFF \
-            -DLLVM_LINK_LLVM_DYLIB=OFF \
-            -DLIBCLANG_BUILD_STATIC=ON \
-            -DCMAKE_SKIP_INSTALL_RPATH=TRUE \
+            -DLLVM_BUILD_LLVM_DYLIB=ON \
+            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DLLVM_BUILD_STATIC=OFF \
             -DBUILD_SHARED_LIBS=OFF \
+            -DLIBCLANG_BUILD_STATIC=OFF \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DLLVM_ENABLE_PIC=ON \
+            -DLLVM_ENABLE_RTTI=ON \
+            -DLLVM_ENABLE_EH=ON \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_BUILD_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -211,21 +279,36 @@ jobs:
             -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
+            -DLLDB_ENABLE_PYTHON=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
+            -DLLDB_BUILD_FRAMEWORK=OFF \
+            -DLLDB_ENABLE_LZMA=ON \
+            -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
+            -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
+            -DLIBLZMA_HAS_AUTO_DECODER=1 \
+            -DLIBLZMA_HAS_EASY_ENCODER=1 \
+            -DLIBLZMA_HAS_LZMA_PRESET=1 \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
+            -DLLDB_ENABLE_LIBXML2=ON \
+            -DLIBXML2_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/libxml2" \
+            -DLIBXML2_LIBRARY="${TARGET_INSTALL_DIR}/lib/libxml2.a" \
             -DLLVM_PARALLEL_LINK_JOBS=1 \
-            -DLLVM_ENABLE_PIC=OFF \
             -DLLVM_ENABLE_LIBCXX=OFF \
             -DLLVM_ENABLE_LLVM_LIBC=OFF \
             -DLLVM_ENABLE_UNWIND_TABLES=OFF \
-            -DLLVM_ENABLE_EH=OFF \
-            -DLLVM_ENABLE_RTTI=OFF \
             -DLLVM_ENABLE_LTO=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_MODULES=OFF \
             -DLLVM_ENABLE_PEDANTIC=OFF \
-            -DLLVM_ENABLE_FFI=OFF \
+            -DLLVM_ENABLE_FFI=ON \
+            -DFFI_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
+            -DFFI_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libffi.a" \
+            -DHAVE_FFI_CALL=1 \
             -DLLVM_ENABLE_LIBPFM=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_LIBXML2=ON \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
             -DLLVM_VERSION_SUFFIX="" \
