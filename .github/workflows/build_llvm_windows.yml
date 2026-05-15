@@ -181,8 +181,7 @@ jobs:
                       --disable-scripts \
                       --disable-doc \
                       --disable-nls \
-                      CC="${{matrix.target}}-clang" \
-                      WINDRES="${{matrix.target}}-windres"
+                      RC="${TOOLCHAIN}/bin/${{matrix.target}}-windres"
                   make -j$(nproc --all) install
               )
           fi
