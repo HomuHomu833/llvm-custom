@@ -1,0 +1,13 @@
+--- a/lldb/source/Host/common/PseudoTerminal.cpp
++++ b/lldb/source/Host/common/PseudoTerminal.cpp
+@@ -95,7 +95,9 @@ llvm::Error PseudoTerminal::OpenSecondary(int oflag) {
+   CloseSecondaryFileDescriptor();
+ 
+   std::string name = GetSecondaryName();
+-  m_secondary_fd = llvm::sys::RetryAfterSignal(-1, ::open, name.c_str(), oflag);
++  m_secondary_fd = llvm::sys::RetryAfterSignal(-1, [&] {
++    return ::open(name.c_str(), oflag);
++  });
+   if (m_secondary_fd >= 0)
+     return llvm::Error::success();
+ 
