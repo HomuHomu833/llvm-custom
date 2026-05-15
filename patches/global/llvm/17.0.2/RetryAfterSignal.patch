@@ -10,3 +10,4 @@
 +  });
    if (m_secondary_fd >= 0)
      return llvm::Error::success();
+ 
