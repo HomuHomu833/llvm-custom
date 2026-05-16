@@ -335,8 +335,19 @@ jobs:
 
           cmake --build "${TARGET_BUILD_DIR}" --target install
 
-      - name: Check
+      - name: Strip and Check
         run: |
+          STRIP="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+
+          find llvm-${{matrix.target}}/bin -type f ! -lname '*' | while IFS= read -r file; do
+            if file "$file" | grep -q ELF; then
+              "$STRIP" -s "$file"
+            fi
+          done
+          find llvm-${{matrix.target}}/lib -maxdepth 1 \( -name '*.so' -o -name '*.so.*' \) | while IFS= read -r sofile; do
+            "$STRIP" --strip-debug "$sofile"
+          done
+
           file llvm-${{matrix.target}}/bin/*
           file llvm-${{matrix.target}}/lib/*.so 2>/dev/null || true
           tree llvm-${{matrix.target}}
