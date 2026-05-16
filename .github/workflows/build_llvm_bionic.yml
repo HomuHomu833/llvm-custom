@@ -341,11 +341,11 @@ jobs:
 
           find llvm-${{matrix.target}}/bin -type f ! -lname '*' | while IFS= read -r file; do
             if file "$file" | grep -q ELF; then
-              "$STRIP" -s "$file"
+              "$STRIP" -s "$file" || true
             fi
           done
           find llvm-${{matrix.target}}/lib -maxdepth 1 \( -name '*.so' -o -name '*.so.*' \) | while IFS= read -r sofile; do
-            "$STRIP" --strip-debug "$sofile"
+            "$STRIP" --strip-debug "$sofile" || true
           done
 
           file llvm-${{matrix.target}}/bin/*
