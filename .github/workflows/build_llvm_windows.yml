@@ -285,6 +285,7 @@ jobs:
             -DLLDB_INCLUDE_TESTS=OFF \
             -DLLDB_BUILD_FRAMEWORK=OFF \
             -DLLDB_ENABLE_LZMA=ON \
+            -DLLDB_ENABLE_POSIX=OFF \
             -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
             -DLIBLZMA_HAS_AUTO_DECODER=1 \
