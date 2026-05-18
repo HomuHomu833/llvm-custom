@@ -1,22 +1,24 @@
 diff --git a/lldb/tools/lldb-server/lldb-platform.cpp b/lldb/tools/lldb-server/lldb-platform.cpp
-index 880b45b..006c422 100644
+index eb53398..d717ffe 100644
 --- a/lldb/tools/lldb-server/lldb-platform.cpp
 +++ b/lldb/tools/lldb-server/lldb-platform.cpp
-@@ -35,7 +35,7 @@
- #include "lldb/Host/OptionParser.h"
- #include "lldb/Host/Socket.h"
- #include "lldb/Host/common/TCPSocket.h"
--#if LLDB_ENABLE_POSIX
-+#if LLDB_ENABLE_POSIX && !defined(_WIN32)
- #include "lldb/Host/posix/DomainSocket.h"
- #endif
- #include "lldb/Utility/FileSpec.h"
-@@ -475,7 +475,7 @@ int main_platform(int argc, char *argv[]) {
-     if (protocol == Socket::ProtocolTcp)
-       socket = new TCPSocket(sockfd, /*should_close=*/true);
-     else {
--#if LLDB_ENABLE_POSIX
-+#if LLDB_ENABLE_POSIX && !defined(_WIN32)
-       socket = new DomainSocket(sockfd, /*should_close=*/true);
- #else
-       WithColor::error() << "lldb-platform child: Unix domain sockets are not "
+@@ -468,6 +468,7 @@ int main_platform(int argc, char *argv[]) {
+     if (gdbserver_port) {
+       socket = std::make_unique<TCPSocket>(sockfd, /*should_close=*/true);
+     } else {
++#if LLDB_ENABLE_POSIX
+       llvm::Expected<std::unique_ptr<DomainSocket>> domain_socket =
+           DomainSocket::FromBoundNativeSocket(sockfd, /*should_close=*/true);
+       if (!domain_socket) {
+@@ -476,6 +477,11 @@ int main_platform(int argc, char *argv[]) {
+         return socket_error;
+       }
+       socket = std::move(domain_socket.get());
++#else
++      WithColor::error() << "lldb-platform child: Unix domain sockets are not "
++                            "supported on this platform.";
++      return socket_error;
++#endif
+     }
+ 
+     GDBRemoteCommunicationServerPlatform platform(socket->GetSocketProtocol(),
