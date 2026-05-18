@@ -95,12 +95,17 @@ jobs:
 
           rm -rf "$ROOTDIR/../llvm_android"
 
+          if [ -d "$ROOTDIR/patches/windows/$LLVM_VERSION" ]; then
+            for PATCH in $ROOTDIR/patches/windows/$LLVM_VERSION/*.patch; do
+              echo "Applying $(basename "$PATCH")..."
+              git apply "$PATCH" || true
+            done
+          fi
+
           for PATCH in $ROOTDIR/patches/global/llvm/$LLVM_VERSION/*.patch; do
             echo "Applying $(basename "$PATCH")..."
             git apply "$PATCH"
           done
-
-          sed -i 's/#if LLDB_ENABLE_POSIX/#if LLDB_ENABLE_POSIX \&\& !defined(_WIN32)/g' lldb/tools/lldb-server/lldb-platform.cpp || true
 
           echo "All patches applied successfully."
 
