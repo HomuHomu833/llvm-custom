@@ -241,6 +241,11 @@ jobs:
           ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
           TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
 
+          LLVM_LINK_DYLIB=ON
+          if [[ "${{inputs.version}}" == "26" && "${{matrix.target}}" == "i686-linux-android" ]]; then
+            LLVM_LINK_DYLIB=OFF
+          fi
+
           cmake -S "$ROOTDIR/llvm" -B "${TARGET_BUILD_DIR}" -G Ninja \
             -DCMAKE_INSTALL_PREFIX="${ROOTDIR}/llvm-${{matrix.target}}" \
             -DCMAKE_PREFIX_PATH="${TARGET_INSTALL_DIR}" \
@@ -268,7 +273,7 @@ jobs:
             -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_USE_STATIC_ZSTD=ON \
             -DLLVM_BUILD_LLVM_DYLIB=ON \
-            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DLLVM_LINK_LLVM_DYLIB=${LLVM_LINK_DYLIB} \
             -DLLVM_ENABLE_PIC=ON \
             -DLLVM_ENABLE_RTTI=ON \
             -DLLVM_ENABLE_EH=ON \
