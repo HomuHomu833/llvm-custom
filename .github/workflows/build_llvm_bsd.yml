@@ -166,6 +166,7 @@ jobs:
                   -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
                   -DCMAKE_RANLIB="${TOOLCHAIN}/bin/ranlib" \
                   -DCMAKE_STRIP="${TOOLCHAIN}/bin/strip" \
+                  -DCMAKE_CROSSCOMPILING=True \
                   -DCMAKE_BUILD_TYPE=MinSizeRel \
                   -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
                   -DZSTD_BUILD_SHARED=OFF \
