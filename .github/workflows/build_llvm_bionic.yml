@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld;lldb"
+        default: "bolt;clang;clang-tools-extra;lld"
         required: true
 
 permissions:
@@ -27,21 +27,10 @@ jobs:
       fail-fast: false
       matrix:
         # riscv64-linux-android
-        include:
-          - target: aarch64-linux-android
-            abi: arm64-v8a
-            platform: 25
-          - target: armv7a-linux-androideabi
-            abi: armeabi-v7a
-            platform: 25
-          - target: i686-linux-android
-            abi: x86
-            platform: 25
-          - target: x86_64-linux-android
-            abi: x86_64
-            platform: 25
+        target: [aarch64-linux-android, armv7a-linux-androideabi, i686-linux-android, x86_64-linux-android]
     runs-on: ubuntu-24.04
     env:
+      ANDROID_PLATFORM: 25
       ROOTDIR: ${{github.workspace}}
       TARGET_BUILD_DIR: ${{github.workspace}}/build/${{matrix.target}}
       TARGET_INSTALL_DIR: ${{github.workspace}}/output/${{matrix.target}}
@@ -122,22 +111,36 @@ jobs:
         run: sudo apt install -y ninja-build
 
       - name: Build dependencies
-        run: |
-          AUTOCONF_HOST=${{matrix.target}}
-          if [ "${{matrix.target}}" = "armv7a-linux-androideabi" ]; then
-            AUTOCONF_HOST="arm-linux-androideabi"
+        run : |
+          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
+            ANDROID_PLATFORM=35
+          else
+            ANDROID_PLATFORM=${ANDROID_PLATFORM}
           fi
 
           TOOLCHAIN=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang
-          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++
+          export CC=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang
+          export CXX=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++
           export LD=${TOOLCHAIN}/bin/ld
           export OBJCOPY=${TOOLCHAIN}/bin/llvm-objcopy
           export AR=${TOOLCHAIN}/bin/llvm-ar
           export RANLIB=${TOOLCHAIN}/bin/llvm-ranlib
           export STRIP=${TOOLCHAIN}/bin/llvm-strip
 
-          rm -rf build output/ zstd/
+          rm -rf build output/ zlib/ zstd/
+
+          if ! test -f "${TARGET_INSTALL_DIR}"/lib/libz.a; then
+              if ! test -d zlib; then
+                  curl -LkSs https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x
+                  mv zlib-1.3.1 zlib
+              fi
+              mkdir -p "${TARGET_BUILD_DIR}"/zlib
+              (
+                  cd ${ROOTDIR}/zlib
+                  ./configure --prefix="${TARGET_INSTALL_DIR}" --static
+                  make -j"$(nproc --all)" install
+              )
+          fi
 
           if ! test -f "${TARGET_INSTALL_DIR}/lib/libzstd.a"; then
               if ! test -d zstd; then
@@ -146,18 +149,16 @@ jobs:
               fi
 
               cmake -S "${ROOTDIR}/zstd/build/cmake" -B "${TARGET_BUILD_DIR}/zstd" \
-                  -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
-                  -DANDROID_ABI="${{matrix.abi}}" \
-                  -DANDROID_PLATFORM=${{matrix.platform}} \
-                  -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
-                  -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++" \
-                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+                  -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/cc" \
+                  -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/c++" \
+                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/cc" \
                   -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
-                  -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
-                  -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
-                  -DCMAKE_RANLIB="${TOOLCHAIN}/bin/llvm-ranlib" \
-                  -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
+                  -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/objcopy" \
+                  -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
+                  -DCMAKE_RANLIB="${TOOLCHAIN}/bin/ranlib" \
+                  -DCMAKE_STRIP="${TOOLCHAIN}/bin/strip" \
                   -DCMAKE_BUILD_TYPE=MinSizeRel \
+                  -DCMAKE_CROSSCOMPILING=True \
                   -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
                   -DZSTD_BUILD_SHARED=OFF \
                   -DZSTD_BUILD_STATIC=ON \
@@ -169,82 +170,17 @@ jobs:
               cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
 
-          if ! test -f "${TARGET_INSTALL_DIR}/lib/liblzma.a"; then
-              if ! test -d xz; then
-                  curl -LkSs https://github.com/tukaani-project/xz/releases/download/v5.4.5/xz-5.4.5.tar.gz | gzip -d | tar -x
-                  mv xz-5.4.5 xz
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}/xz"
-              (
-                  cd "${TARGET_BUILD_DIR}/xz"
-                  ${ROOTDIR}/xz/configure \
-                      --host=${AUTOCONF_HOST} \
-                      --prefix="${TARGET_INSTALL_DIR}" \
-                      --enable-static \
-                      --disable-shared \
-                      --disable-xz \
-                      --disable-xzdec \
-                      --disable-lzmadec \
-                      --disable-lzmainfo \
-                      --disable-scripts \
-                      --disable-doc \
-                      --disable-nls
-                  make -j$(nproc --all) install
-              )
-          fi
-
-          if ! test -f "${TARGET_INSTALL_DIR}/lib/libxml2.a"; then
-              if ! test -d libxml2; then
-                  curl -LkSs https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.5.tar.xz | xz -d | tar -x
-                  mv libxml2-2.11.5 libxml2
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}/libxml2"
-              (
-                  cd "${TARGET_BUILD_DIR}/libxml2"
-                  CFLAGS="-I${TARGET_INSTALL_DIR}/include" \
-                  LDFLAGS="-L${TARGET_INSTALL_DIR}/lib" \
-                  ${ROOTDIR}/libxml2/configure \
-                      --host=${AUTOCONF_HOST} \
-                      --prefix="${TARGET_INSTALL_DIR}" \
-                      --enable-static \
-                      --disable-shared \
-                      --without-python \
-                      --without-iconv \
-                      --without-icu \
-                      --with-zlib="${TARGET_INSTALL_DIR}" \
-                      --without-lzma
-                  make -j$(nproc --all) install
-              )
-          fi
-
-          if ! test -f "${TARGET_INSTALL_DIR}/lib/libffi.a"; then
-              if ! test -d libffi; then
-                  curl -LkSs https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz | gzip -d | tar -x
-                  mv libffi-3.4.6 libffi
-              fi
-              mkdir -p "${TARGET_BUILD_DIR}/libffi"
-              (
-                  cd "${TARGET_BUILD_DIR}/libffi"
-                  ${ROOTDIR}/libffi/configure \
-                      --host=${AUTOCONF_HOST} \
-                      --prefix="${TARGET_INSTALL_DIR}" \
-                      --enable-static \
-                      --disable-shared \
-                      --disable-docs
-                  make -j$(nproc --all) install
-              )
-          fi
-
       - name: Build LLVM
         run: |
+          if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
+            ANDROID_PLATFORM=35
+          else
+            ANDROID_PLATFORM=${ANDROID_PLATFORM}
+          fi
+
           ANDROID_NDK_HOME=$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}
           ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
           TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-
-          LLVM_LINK_DYLIB=ON
-          if [[ "${{inputs.version}}" == "26" && "${{matrix.target}}" == "i686-linux-android" ]]; then
-            LLVM_LINK_DYLIB=OFF
-          fi
 
           cmake -S "$ROOTDIR/llvm" -B "${TARGET_BUILD_DIR}" -G Ninja \
             -DCMAKE_INSTALL_PREFIX="${ROOTDIR}/llvm-${{matrix.target}}" \
@@ -252,15 +188,11 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM;RISCV" \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_CROSSCOMPILING=True \
-            -DCMAKE_SYSTEM_NAME=Android \
-            -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/../../../../build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI="${{ matrix.abi }}" \
-            -DANDROID_PLATFORM=${{matrix.platform}} \
-            -DANDROID_STL=c++_static \
-            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${{matrix.platform}} \
-            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
-            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang++" \
-            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${{matrix.platform}}-clang" \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DLLVM_DEFAULT_TARGET_TRIPLE=${{matrix.target}}${ANDROID_PLATFORM} \
+            -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
+            -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++" \
+            -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
             -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
             -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
             -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
@@ -272,18 +204,12 @@ jobs:
             -Dzstd_LIBRARY="${TARGET_INSTALL_DIR}/lib/libzstd.a" \
             -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_LLVM_DYLIB=ON \
-            -DLLVM_LINK_LLVM_DYLIB=${LLVM_LINK_DYLIB} \
-            -DLLVM_ENABLE_PIC=ON \
-            -DLLVM_ENABLE_RTTI=ON \
-            -DLLVM_ENABLE_EH=ON \
-            -DCMAKE_INSTALL_RPATH="\$ORIGIN/../lib" \
-            -DCMAKE_BUILD_RPATH_USE_ORIGIN=ON \
-            -DCMAKE_SKIP_INSTALL_RPATH=FALSE \
-            -DLLVM_BUILD_STATIC=OFF \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DLIBCLANG_BUILD_STATIC=OFF \
+            -DLLVM_BUILD_STATIC=ON \
             -DCLANG_ENABLE_ARCMT=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DLIBCLANG_BUILD_STATIC=ON \
+            -DCMAKE_SKIP_INSTALL_RPATH=TRUE \
+            -DBUILD_SHARED_LIBS=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_BUILD_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -301,36 +227,21 @@ jobs:
             -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
             -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
-            -DLLDB_ENABLE_PYTHON=OFF \
-            -DLLDB_ENABLE_LUA=OFF \
-            -DLLDB_INCLUDE_TESTS=OFF \
-            -DLLDB_BUILD_FRAMEWORK=OFF \
-            -DLLDB_ENABLE_LZMA=ON \
-            -DLIBLZMA_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
-            -DLIBLZMA_LIBRARY="${TARGET_INSTALL_DIR}/lib/liblzma.a" \
-            -DLIBLZMA_HAS_AUTO_DECODER=1 \
-            -DLIBLZMA_HAS_EASY_ENCODER=1 \
-            -DLIBLZMA_HAS_LZMA_PRESET=1 \
-            -DLLDB_ENABLE_CURSES=OFF \
-            -DLLDB_ENABLE_LIBEDIT=OFF \
-            -DLLDB_ENABLE_LIBXML2=ON \
-            -DLIBXML2_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/libxml2" \
-            -DLIBXML2_LIBRARY="${TARGET_INSTALL_DIR}/lib/libxml2.a" \
             -DLLVM_PARALLEL_LINK_JOBS=1 \
+            -DLLVM_ENABLE_PIC=OFF \
             -DLLVM_ENABLE_LIBCXX=OFF \
             -DLLVM_ENABLE_LLVM_LIBC=OFF \
-            -DLLVM_ENABLE_UNWIND_TABLES=ON \
+            -DLLVM_ENABLE_UNWIND_TABLES=OFF \
+            -DLLVM_ENABLE_EH=OFF \
+            -DLLVM_ENABLE_RTTI=OFF \
             -DLLVM_ENABLE_LTO=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_MODULES=OFF \
             -DLLVM_ENABLE_PEDANTIC=OFF \
-            -DLLVM_ENABLE_FFI=ON \
-            -DFFI_INCLUDE_DIRS="${TARGET_INSTALL_DIR}/include" \
-            -DFFI_LIBRARIES="${TARGET_INSTALL_DIR}/lib/libffi.a" \
-            -DHAVE_FFI_CALL=1 \
+            -DLLVM_ENABLE_FFI=OFF \
             -DLLVM_ENABLE_LIBPFM=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
-            -DLLVM_ENABLE_LIBXML2=ON \
+            -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
             -DLLVM_VERSION_SUFFIX="" \
@@ -342,19 +253,12 @@ jobs:
 
       - name: Strip and Check
         run: |
-          STRIP="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
-
           find llvm-${{matrix.target}}/bin -type f ! -lname '*' | while IFS= read -r file; do
             if file "$file" | grep -q ELF; then
-              "$STRIP" -s "$file" || true
+              "$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -s "$file"
             fi
           done
-          find llvm-${{matrix.target}}/lib -maxdepth 1 \( -name '*.so' -o -name '*.so.*' \) | while IFS= read -r sofile; do
-            "$STRIP" --strip-debug "$sofile" || true
-          done
-
           file llvm-${{matrix.target}}/bin/*
-          file llvm-${{matrix.target}}/lib/*.so 2>/dev/null || true
           tree llvm-${{matrix.target}}
 
       - name: Compress
