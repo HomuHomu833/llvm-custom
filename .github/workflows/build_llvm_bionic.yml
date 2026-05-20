@@ -149,14 +149,14 @@ jobs:
               fi
 
               cmake -S "${ROOTDIR}/zstd/build/cmake" -B "${TARGET_BUILD_DIR}/zstd" \
-                  -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/cc" \
-                  -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/c++" \
-                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/cc" \
+                  -DCMAKE_C_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
+                  -DCMAKE_CXX_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++" \
+                  -DCMAKE_ASM_COMPILER="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang" \
                   -DCMAKE_LINKER="${TOOLCHAIN}/bin/ld" \
-                  -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/objcopy" \
-                  -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
-                  -DCMAKE_RANLIB="${TOOLCHAIN}/bin/ranlib" \
-                  -DCMAKE_STRIP="${TOOLCHAIN}/bin/strip" \
+                  -DCMAKE_OBJCOPY="${TOOLCHAIN}/bin/llvm-objcopy" \
+                  -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
+                  -DCMAKE_RANLIB="${TOOLCHAIN}/bin/llvm-ranlib" \
+                  -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
                   -DCMAKE_BUILD_TYPE=MinSizeRel \
                   -DCMAKE_CROSSCOMPILING=True \
                   -DCMAKE_INSTALL_PREFIX="${TARGET_INSTALL_DIR}" \
