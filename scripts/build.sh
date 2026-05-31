@@ -81,7 +81,7 @@ mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
   curl -sSfL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x -C "$ROOTDIR"
-  ( cd "$ROOTDIR/zlib-1.3.1" && CFLAGS="$CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
+  ( cd "$ROOTDIR/zlib-1.3.1" && CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
@@ -89,6 +89,8 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
     -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
     -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
+    -DCMAKE_OBJCOPY="$CROSS_OBJCOPY" -DCMAKE_LINKER="$CROSS_LD" \
+    -DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS" \
     -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_CROSSCOMPILING=True -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_PROGRAMS=OFF \
