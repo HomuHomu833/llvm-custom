@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -125,7 +125,7 @@ jobs:
           cp -R $ROOTDIR/patches/musl/zig/* $(whereis zig | awk '{print $2}' | xargs dirname)
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build
+        run: sudo apt install -y ninja-build swig python3.11
 
       - name: Build dependencies
         run: |
@@ -180,7 +180,62 @@ jobs:
 
               cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
-          
+
+          # Python
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libpython3.11.a"; then
+              NDK_BIN="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+              if ! test -d python; then
+                  curl -LkSs https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tar.xz | xz -d | tar -x
+                  mv Python-3.11.4 python
+                  cp $ROOTDIR/config/config.sub python
+                  cp $ROOTDIR/config/config.guess python
+              fi
+              (
+                  cd ${ROOTDIR}/python
+                  printf '%s\n' \
+                      ac_cv_file__dev_ptmx=no \
+                      ac_cv_file__dev_ptc=no \
+                      ac_cv_func_setgid=no \
+                      ac_cv_func_setresgid=no \
+                      ac_cv_func_setresuid=no \
+                      ac_cv_func_setreuid=no \
+                      ac_cv_func_setregid=no \
+                      ac_cv_func_setuid=no \
+                      ac_cv_func_seteuid=no \
+                      ac_cv_func_setfsgid=no \
+                      ac_cv_func_setfsuid=no \
+                      ac_cv_func_setegid=no \
+                      ac_cv_func_getloadavg=no \
+                      ac_cv_have_decl_getloadavg=no > config.site
+                  sed -i '/^case \$host_cpu in #(/,/^esac$/c\MODULE_BUILDTYPE=static' configure
+                  ./configure --prefix="${TARGET_INSTALL_DIR}" \
+                      --build=x86_64-linux-gnu \
+                      --host=${{matrix.target}} \
+                      --disable-shared \
+                      --disable-ipv6 \
+                      --with-build-python \
+                      --without-ensurepip \
+                      CONFIG_SITE=config.site \
+                      TARGET="${{matrix.target}}" \
+                      CC=${TOOLCHAIN}/bin/cc \
+                      AS=${TOOLCHAIN}/bin/cc \
+                      CXX=${TOOLCHAIN}/bin/c++ \
+                      LD=${TOOLCHAIN}/bin/ld \
+                      OBJCOPY=${TOOLCHAIN}/bin/objcopy \
+                      READELF=${NDK_BIN}/llvm-readelf \
+                      LLVM_PROFDATA=${NDK_BIN}/llvm-profdata \
+                      AR=${TOOLCHAIN}/bin/ar \
+                      RANLIB=${TOOLCHAIN}/bin/ranlib \
+                      STRIP=${TOOLCHAIN}/bin/strip \
+                      LDSHARED="${TOOLCHAIN}/bin/cc -shared -fPIC" \
+                      CFLAGS="-Wno-error=date-time" \
+                      CXXFLAGS="-Wno-error=date-time" \
+                      _PYTHON_HOST_PLATFORM="${{matrix.target}}"
+                  make -j"$(nproc --all)" build_all
+                  make install
+              )
+          fi
+
 
       - name: Build LLVM
         run: |
@@ -202,14 +257,13 @@ jobs:
             -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
             -DCMAKE_RANLIB="${TOOLCHAIN}/bin/ranlib" \
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/strip" \
-            -DCMAKE_C_FLAGS="-static" \
-            -DCMAKE_CXX_FLAGS="-static" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_STATIC=ON \
+            -DLLVM_BUILD_STATIC=OFF \
             -DCLANG_ENABLE_ARCMT=OFF \
             -DLLVM_LINK_LLVM_DYLIB=OFF \
             -DLIBCLANG_BUILD_STATIC=ON \
@@ -249,12 +303,83 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
+            -DLLDB_ENABLE_PYTHON=ON \
+            -DSWIG_EXECUTABLE="$(command -v swig)" \
+            -DPython3_EXECUTABLE="$(command -v python3.11)" \
+            -DPython3_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/python3.11" \
+            -DPython3_LIBRARY="${TARGET_INSTALL_DIR}/lib/libpython3.11.a" \
+            -DLLDB_EMBED_PYTHON_HOME=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_ENABLE_LZMA=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
+            -DLLDB_ENABLE_LIBXML2=OFF \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
             -DLLVM_VERSION_SUFFIX="" \
             -DCLANG_VENDOR="Android" \
             -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository_owner }}/llvm-custom" \
             -DPACKAGE_BUGREPORT="https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/"
 
           cmake --build "${TARGET_BUILD_DIR}" --target install
+
+      - name: Bundle musl loader and wrap binaries
+        run: |
+          TOOLCHAIN=${PWD}/zig-as-llvm
+          NDK_BIN="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          TC="$ROOTDIR/llvm-${{matrix.target}}"
+
+          # Determine the ELF interpreter the shipped binaries request (e.g.
+          # /lib/ld-musl-x86_64.so.1) by reading a real built binary.
+          INTERP=""
+          for cand in "$TC"/bin/*; do
+              "${NDK_BIN}/llvm-readelf" -h "$cand" >/dev/null 2>&1 || continue
+              INTERP=$("${NDK_BIN}/llvm-readelf" -l "$cand" 2>/dev/null \
+                  | sed -n 's/.*\[Requesting program interpreter: \(.*\)\]/\1/p')
+              [ -n "$INTERP" ] && break
+          done
+          if [ -z "$INTERP" ]; then
+              echo "Binaries are statically linked (no interpreter) - no loader bundle needed."
+              exit 0
+          fi
+          LOADER_NAME=$(basename "$INTERP")
+
+          # musl's libc.so (built by zig) doubles as the program loader. Locate it.
+          LIBC_SO=$(find "${HOME}/.cache/zig" "${ZIG_GLOBAL_CACHE_DIR:-/nonexistent}" "${ZIG_LOCAL_CACHE_DIR:-/nonexistent}" -name 'libc.so*' 2>/dev/null | head -n 1)
+          if [ -z "$LIBC_SO" ]; then
+              echo "ERROR: could not locate musl libc.so (loader) in zig cache" >&2
+              exit 1
+          fi
+
+          # Bundle the loader, then replace each ELF in bin/ with a launcher that runs the
+          # real binary via the bundled loader with an $ORIGIN-relative library path, so the
+          # toolchain runs on systems lacking a system ld-musl (Android, glibc distros).
+          mkdir -p "$TC/lib" "$TC/libexec/llvm"
+          cp "$LIBC_SO" "$TC/lib/$LOADER_NAME"
+          chmod 0755 "$TC/lib/$LOADER_NAME"
+          ln -sf "$LOADER_NAME" "$TC/lib/libc.so"
+
+          mv "$TC"/bin/* "$TC/libexec/llvm/" 2>/dev/null || true
+          for f in "$TC"/libexec/llvm/*; do
+              name=$(basename "$f")
+              if "${NDK_BIN}/llvm-readelf" -h "$f" >/dev/null 2>&1; then
+                  # ELF (or symlink to ELF): generate a loader-launcher wrapper in bin/.
+                  # Uses the runtime basename so multi-name tools (clang++, ld.lld, ...) keep
+                  # their argv[0]-based behaviour.
+                  printf '%s\n' \
+                      '#!/bin/sh' \
+                      'p=$0' \
+                      'case $p in */*) ;; *) p=$(command -v -- "$p") ;; esac' \
+                      'd=$(cd -- "$(dirname -- "$p")" && pwd -P)' \
+                      'n=${0##*/}' \
+                      "exec \"\$d/../lib/$LOADER_NAME\" --library-path \"\$d/../lib\" \"\$d/../libexec/llvm/\$n\" \"\$@\"" \
+                      > "$TC/bin/$name"
+                  chmod 0755 "$TC/bin/$name"
+              else
+                  # Non-ELF helper (perl/python/shell script) or dangling link: keep as-is.
+                  mv "$f" "$TC/bin/$name"
+              fi
+          done
+          echo "Bundled loader $LOADER_NAME and wrapped $(find "$TC/libexec/llvm" -maxdepth 1 -type f | wc -l) binaries."
 
       - name: Check
         run: |

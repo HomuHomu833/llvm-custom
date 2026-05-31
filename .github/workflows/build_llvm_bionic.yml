@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -108,7 +108,7 @@ jobs:
           echo "All patches applied successfully."
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build
+        run: sudo apt install -y ninja-build swig python3.11
 
       - name: Build dependencies
         run : |
@@ -170,6 +170,43 @@ jobs:
               cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
 
+          # Python
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libpython3.11.a"; then
+              if ! test -d python; then
+                  curl -LkSs https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tar.xz | xz -d | tar -x
+                  mv Python-3.11.4 python
+                  cp $ROOTDIR/config/config.sub python
+                  cp $ROOTDIR/config/config.guess python
+              fi
+              (
+                  cd ${ROOTDIR}/python
+                  printf 'ac_cv_file__dev_ptmx=no\nac_cv_file__dev_ptc=no\n' > config.site
+                  sed -i '/^case \$host_cpu in #(/,/^esac$/c\MODULE_BUILDTYPE=static' configure
+                  ./configure --prefix="${TARGET_INSTALL_DIR}" \
+                      --build=x86_64-linux-gnu \
+                      --host=${{matrix.target}} \
+                      --disable-shared \
+                      --disable-ipv6 \
+                      --with-build-python \
+                      --without-ensurepip \
+                      CONFIG_SITE=config.site \
+                      CC=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang \
+                      AS=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang \
+                      CXX=${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang++ \
+                      LD=${TOOLCHAIN}/bin/ld \
+                      OBJCOPY=${TOOLCHAIN}/bin/llvm-objcopy \
+                      READELF=${TOOLCHAIN}/bin/llvm-readelf \
+                      LLVM_PROFDATA=${TOOLCHAIN}/bin/llvm-profdata \
+                      AR=${TOOLCHAIN}/bin/llvm-ar \
+                      RANLIB=${TOOLCHAIN}/bin/llvm-ranlib \
+                      STRIP=${TOOLCHAIN}/bin/llvm-strip \
+                      LDSHARED="${TOOLCHAIN}/bin/${{matrix.target}}${ANDROID_PLATFORM}-clang -shared -fPIC" \
+                      _PYTHON_HOST_PLATFORM="${{matrix.target}}"
+                  make -j"$(nproc --all)" build_all
+                  make install
+              )
+          fi
+
       - name: Build LLVM
         run: |
           if [ "${{ matrix.target }}" = "riscv64-linux-android" ]; then
@@ -198,13 +235,15 @@ jobs:
             -DCMAKE_AR="${TOOLCHAIN}/bin/llvm-ar" \
             -DCMAKE_RANLIB="${TOOLCHAIN}/bin/llvm-ranlib" \
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/llvm-strip" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
             -Dzstd_LIBRARY="${TARGET_INSTALL_DIR}/lib/libzstd.a" \
             -Dzstd_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include" \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_STATIC=ON \
+            -DLLVM_BUILD_STATIC=OFF \
             -DCLANG_ENABLE_ARCMT=OFF \
             -DLLVM_LINK_LLVM_DYLIB=OFF \
             -DLIBCLANG_BUILD_STATIC=ON \
@@ -244,6 +283,18 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
+            -DLLDB_ENABLE_PYTHON=ON \
+            -DSWIG_EXECUTABLE="$(command -v swig)" \
+            -DPython3_EXECUTABLE="$(command -v python3.11)" \
+            -DPython3_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/python3.11" \
+            -DPython3_LIBRARY="${TARGET_INSTALL_DIR}/lib/libpython3.11.a" \
+            -DLLDB_EMBED_PYTHON_HOME=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_ENABLE_LZMA=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
+            -DLLDB_ENABLE_LIBXML2=OFF \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
             -DLLVM_VERSION_SUFFIX="" \
             -DCLANG_VENDOR="Android" \
             -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository_owner }}/llvm-custom" \

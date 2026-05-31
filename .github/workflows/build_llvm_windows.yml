@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -108,7 +108,7 @@ jobs:
           mv llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64 llvm-mingw
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build
+        run: sudo apt install -y ninja-build swig python3.11 mingw-w64-tools
 
       - name: Build dependencies
         run: |
@@ -161,6 +161,24 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
             cmake --build "${TARGET_BUILD_DIR}/zstd" --target install
 
+          # Python
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libpython3.11.dll.a"; then
+              curl -LkSs "https://github.com/${{ github.repository_owner }}/android-ndk-custom/raw/main/binaries/python-3.11.4-${{matrix.target}}.zip" -o python-win.zip
+              mkdir -p "${TARGET_INSTALL_DIR}/python" "${TARGET_INSTALL_DIR}/include/python3.11" "${TARGET_INSTALL_DIR}/lib"
+              unzip -qq python-win.zip -d "${TARGET_INSTALL_DIR}/python"
+              cp -R "${TARGET_INSTALL_DIR}/python/include/." "${TARGET_INSTALL_DIR}/include/python3.11/"
+              case "${{matrix.target}}" in
+                  aarch64-*) DLLMACHINE=arm64 ;;
+                  i686-*)    DLLMACHINE=i386 ;;
+                  *)         DLLMACHINE=i386:x86-64 ;;
+              esac
+              (
+                  cd "${TARGET_INSTALL_DIR}/python"
+                  gendef python311.dll
+                  ${TOOLCHAIN}/bin/llvm-dlltool -m ${DLLMACHINE} -d python311.def -l "${TARGET_INSTALL_DIR}/lib/libpython3.11.dll.a" -D python311.dll
+              )
+          fi
+
       - name: Build LLVM
         run: |
           TOOLCHAIN=${PWD}/llvm-mingw
@@ -181,14 +199,13 @@ jobs:
             -DCMAKE_AR="${TOOLCHAIN}/bin/${{matrix.target}}-ar" \
             -DCMAKE_RANLIB="${TOOLCHAIN}/bin/${{matrix.target}}-ranlib" \
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/${{matrix.target}}-strip" \
-            -DCMAKE_C_FLAGS="-static" \
-            -DCMAKE_CXX_FLAGS="-static" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc -pthread" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc -pthread" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_BUILD_STATIC=ON \
+            -DLLVM_BUILD_STATIC=OFF \
             -DCLANG_ENABLE_ARCMT=OFF \
             -DLLVM_LINK_LLVM_DYLIB=OFF \
             -DLIBCLANG_BUILD_STATIC=ON \
@@ -228,6 +245,18 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
+            -DLLDB_ENABLE_PYTHON=ON \
+            -DSWIG_EXECUTABLE="$(command -v swig)" \
+            -DPython3_EXECUTABLE="$(command -v python3.11)" \
+            -DPython3_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/python3.11" \
+            -DPython3_LIBRARY="${TARGET_INSTALL_DIR}/lib/libpython3.11.dll.a" \
+            -DLLDB_EMBED_PYTHON_HOME=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_ENABLE_LZMA=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
+            -DLLDB_ENABLE_LIBXML2=OFF \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
             -DLLVM_VERSION_SUFFIX="" \
             -DCLANG_VENDOR="Android" \
             -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository_owner }}/llvm-custom" \

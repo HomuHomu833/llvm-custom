@@ -14,7 +14,7 @@ on:
       projects:
         description: "Projects to build:"
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-        default: "bolt;clang;clang-tools-extra;lld"
+        default: "bolt;clang;clang-tools-extra;lld;lldb"
         required: true
 
 permissions:
@@ -123,7 +123,7 @@ jobs:
         run: git clone https://github.com/${{ github.repository_owner }}/zig-as-llvm
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build
+        run: sudo apt install -y ninja-build swig python3.11
 
       - name: Build dependencies
         run: |
@@ -179,6 +179,47 @@ jobs:
               cmake --build "${TARGET_BUILD_DIR}/zstd" --target install -j$(nproc --all)
           fi
 
+          # Python
+          if ! test -f "${TARGET_INSTALL_DIR}/lib/libpython3.11.a"; then
+              NDK_BIN="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+              if ! test -d python; then
+                  curl -LkSs https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tar.xz | xz -d | tar -x
+                  mv Python-3.11.4 python
+                  cp $ROOTDIR/config/config.sub python
+                  cp $ROOTDIR/config/config.guess python
+                  cp $ROOTDIR/patches/bsd/python/configure python/configure
+              fi
+              (
+                  cd ${ROOTDIR}/python
+                  printf 'ac_cv_file__dev_ptmx=no\nac_cv_file__dev_ptc=no\n' > config.site
+                  ./configure --prefix="${TARGET_INSTALL_DIR}" \
+                      --build=x86_64-linux-gnu \
+                      --host=${{matrix.target}} \
+                      --disable-shared \
+                      --disable-ipv6 \
+                      --with-build-python \
+                      --without-ensurepip \
+                      CONFIG_SITE=config.site \
+                      TARGET="${{matrix.target}}" \
+                      CC=${TOOLCHAIN}/bin/cc \
+                      AS=${TOOLCHAIN}/bin/cc \
+                      CXX=${TOOLCHAIN}/bin/c++ \
+                      LD=${TOOLCHAIN}/bin/ld \
+                      OBJCOPY=${TOOLCHAIN}/bin/objcopy \
+                      READELF=${NDK_BIN}/llvm-readelf \
+                      LLVM_PROFDATA=${NDK_BIN}/llvm-profdata \
+                      AR=${TOOLCHAIN}/bin/ar \
+                      RANLIB=${TOOLCHAIN}/bin/ranlib \
+                      STRIP=${TOOLCHAIN}/bin/strip \
+                      LDSHARED="${TOOLCHAIN}/bin/cc -shared -fPIC" \
+                      CFLAGS="-Wno-error=date-time" \
+                      CXXFLAGS="-Wno-error=date-time" \
+                      _PYTHON_HOST_PLATFORM="${{matrix.target}}"
+                  make -j"$(nproc --all)" build_all
+                  make install
+              )
+          fi
+
       - name: Build LLVM
         run: |
           TOOLCHAIN=${PWD}/zig-as-llvm
@@ -205,6 +246,8 @@ jobs:
             -DCMAKE_AR="${TOOLCHAIN}/bin/ar" \
             -DCMAKE_RANLIB="${TOOLCHAIN}/bin/ranlib" \
             -DCMAKE_STRIP="${TOOLCHAIN}/bin/strip" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++" \
             -DLLVM_ENABLE_PROJECTS="${{inputs.projects}}" \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
@@ -249,6 +292,18 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_CURL=OFF \
             -DLLVM_ENABLE_THREADS=ON \
+            -DLLDB_ENABLE_PYTHON=ON \
+            -DSWIG_EXECUTABLE="$(command -v swig)" \
+            -DPython3_EXECUTABLE="$(command -v python3.11)" \
+            -DPython3_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/python3.11" \
+            -DPython3_LIBRARY="${TARGET_INSTALL_DIR}/lib/libpython3.11.a" \
+            -DLLDB_EMBED_PYTHON_HOME=OFF \
+            -DLLDB_ENABLE_LUA=OFF \
+            -DLLDB_ENABLE_LZMA=OFF \
+            -DLLDB_ENABLE_LIBEDIT=OFF \
+            -DLLDB_ENABLE_LIBXML2=OFF \
+            -DLLDB_ENABLE_CURSES=OFF \
+            -DLLDB_INCLUDE_TESTS=OFF \
             -DLLVM_VERSION_SUFFIX="" \
             -DCLANG_VENDOR="Android" \
             -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository_owner }}/llvm-custom" \
