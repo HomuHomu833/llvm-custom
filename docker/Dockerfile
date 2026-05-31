@@ -16,7 +16,7 @@ ARG REPO_OWNER=HomuHomu833
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils unzip git make cmake ninja-build \
-        build-essential patchelf file tree python3 zlib-dev libzstd-dev \
+        build-essential patchelf file tree python3 zlib1g-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # zig (provides the cross C/C++ toolchain for linux/bsd targets)
