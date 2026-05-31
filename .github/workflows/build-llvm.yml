@@ -59,13 +59,14 @@ jobs:
           sudo ln -s /mnt/docker /var/lib/docker
           sudo systemctl start docker
 
-      - uses: actions/checkout@v5
-
-      - name: Prepare build directory on /mnt
+      - name: Prepare /mnt/build
         run: |
           sudo mkdir -p /mnt/build
           sudo chown $(id -u):$(id -g) /mnt/build
-          cp -a . /mnt/build/
+
+      - uses: actions/checkout@v5
+        with:
+          path: /mnt/build
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -98,15 +99,14 @@ jobs:
           projects=$(echo '${{ inputs.projects }}' | tr ";" "+")
           tarball="${projects}-r${{ inputs.version }}${{ inputs.revision }}-${{ matrix.target }}"
           mv "llvm-${{ matrix.target }}" "$tarball"
-          tar -c "$tarball" | xz -T0 -v > "$tarball.tar.xz"
-          cp "$tarball.tar.xz" "$GITHUB_WORKSPACE/"
+          tar -c "$tarball" | xz -T0 -v > "/mnt/$tarball.tar.xz"
           echo "tarball=$tarball" >> "$GITHUB_ENV"
 
       - name: Upload release
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: "llvm-r${{ inputs.version }}"
-          artifacts: ${{ env.tarball }}.tar.xz
+          artifacts: /mnt/${{ env.tarball }}.tar.xz
           allowUpdates: true
           replacesArtifacts: true
           body: ''
