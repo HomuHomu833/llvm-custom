@@ -251,7 +251,7 @@ jobs:
             -DLLVM_ENABLE_THREADS=ON \
             -DLLVM_VERSION_SUFFIX="" \
             -DCLANG_VENDOR="Android" \
-            -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository_owner }}/llvm-custom" \
+            -DCLANG_REPOSITORY_STRING="https://github.com/${{ github.repository }}" \
             -DPACKAGE_BUGREPORT="https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/"
 
           cmake --build "${TARGET_BUILD_DIR}" --target install
