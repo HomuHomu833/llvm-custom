@@ -30,53 +30,51 @@ OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# Resolve a command to its full absolute path — CMake does not honour PATH for
-# CMAKE_AR / CMAKE_RANLIB / etc. and treats bare names as relative paths.
-need() { command -v "$1" || { echo "missing: $1" >&2; exit 1; }; }
-
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
-CFLAGS=""; LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
+CROSS_CFLAGS=""; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
 
 case "$PLATFORM" in
   bionic)
     API="${ANDROID_API:-25}"; [ "$TARGET" = riscv64-linux-android ] && API=35
     TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
-    CC="$TC/bin/${TARGET}${API}-clang"; CXX="${CC}++"
-    AR="$TC/bin/llvm-ar"; RANLIB="$TC/bin/llvm-ranlib"; STRIP="$TC/bin/llvm-strip"
-    OBJCOPY="$TC/bin/llvm-objcopy"; LD="$TC/bin/ld"
-    TRIPLE="${TARGET}${API}"; LDFLAGS="-static-libstdc++"
+    CROSS_CC="$TC/bin/${TARGET}${API}-clang"; CROSS_CXX="${CROSS_CC}++"
+    CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
+    CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
+    TRIPLE="${TARGET}${API}"; CROSS_LDFLAGS="-static-libstdc++"
     ;;
-  linux)   # gnu + musl, via the zig-as-llvm wrapper (on PATH in the image)
-    CC="$(need cc)"; CXX="$(need c++)"; AR="$(need ar)"; RANLIB="$(need ranlib)"
-    STRIP="$(need strip)"; OBJCOPY="$(need objcopy)"; LD="$(need ld)"
+  linux)
+    TC="/opt/zig-as-llvm"
+    CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
+    CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
     case "$TARGET" in
-      *musl*) CFLAGS="-static"; LDFLAGS="-static"
-              # patch zig's musl sources (tmpfile/tmpnam/faccessat) if present
+      *musl*) CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
-      *)      LDFLAGS="-static-libstdc++ -static-libgcc" ;;
+      *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
     ;;
-  bsd)     # via zig-as-llvm; CMAKE_SYSTEM_NAME from the OS field of the triple
-    CC="$(need cc)"; CXX="$(need c++)"; AR="$(need ar)"; RANLIB="$(need ranlib)"
-    STRIP="$(need strip)"; OBJCOPY="$(need objcopy)"; LD="$(need ld)"
+  bsd)
+    TC="/opt/zig-as-llvm"
+    CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
+    CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
     case "$(echo "$TARGET" | cut -d- -f2)" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
       openbsd) SYSTEM_NAME=OpenBSD ;;
     esac
-    LDFLAGS="-static-libstdc++"
+    CROSS_LDFLAGS="-static-libstdc++"
     ;;
-  windows) # via llvm-mingw (on PATH in the image)
-    CC="$(need "${TARGET}-clang")"; CXX="$(need "${TARGET}-clang++")"
-    AR="$(need "${TARGET}-ar")"; RANLIB="$(need "${TARGET}-ranlib")"
-    STRIP="$(need "${TARGET}-strip")"; OBJCOPY="$(need "${TARGET}-objcopy")"
-    LD="$(need "${TARGET}-ld")"
-    SYSTEM_NAME=Windows; LDFLAGS="-static-libstdc++ -static-libgcc -pthread"
+  windows)
+    TC="/opt/llvm-mingw"
+    CROSS_CC="$TC/bin/${TARGET}-clang"; CROSS_CXX="$TC/bin/${TARGET}-clang++"
+    CROSS_AR="$TC/bin/${TARGET}-ar"; CROSS_RANLIB="$TC/bin/${TARGET}-ranlib"
+    CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
+    CROSS_LD="$TC/bin/${TARGET}-ld"
+    SYSTEM_NAME=Windows; CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -pthread"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
-export CC CXX AR RANLIB STRIP OBJCOPY LD
+export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
 # --- zlib + zstd (static, bundled) -----------------------------------------
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
@@ -89,8 +87,8 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
   curl -sSfL https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz | gzip -d | tar -x -C "$ROOTDIR"
   cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
-    -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_ASM_COMPILER="$CC" \
-    -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" -DCMAKE_STRIP="$STRIP" \
+    -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
+    -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
     -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_CROSSCOMPILING=True -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_PROGRAMS=OFF \
@@ -107,11 +105,11 @@ args=(
   -DCMAKE_CROSSCOMPILING=True
   -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME"
   -DLLVM_DEFAULT_TARGET_TRIPLE="$TRIPLE"
-  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_ASM_COMPILER="$CC"
-  -DCMAKE_LINKER="$LD" -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB"
-  -DCMAKE_OBJCOPY="$OBJCOPY" -DCMAKE_STRIP="$STRIP"
-  -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS"
-  -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS"
+  -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC"
+  -DCMAKE_LINKER="$CROSS_LD" -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB"
+  -DCMAKE_OBJCOPY="$CROSS_OBJCOPY" -DCMAKE_STRIP="$CROSS_STRIP"
+  -DCMAKE_EXE_LINKER_FLAGS="$CROSS_LDFLAGS"
+  -DCMAKE_SHARED_LINKER_FLAGS="$CROSS_LDFLAGS"
   -DLLVM_ENABLE_PROJECTS="$PROJECTS"
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON -DLLVM_USE_STATIC_ZSTD=ON
   -DLLVM_BUILD_STATIC=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_LINK_LLVM_DYLIB=OFF
@@ -131,8 +129,9 @@ args=(
   -DCLANG_VENDOR="Android"
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
+  -DCROSS_TOOLCHAIN_FLAGS_NATIVE="$NATIVE_FLAGS"
 )
-[ -n "$CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CFLAGS")
+[ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
@@ -140,5 +139,5 @@ log "Building + installing"
 cmake --build "$BUILD_DIR" --target install
 
 # strip installed binaries (llvm-strip is format-agnostic: ELF/PE/Mach-O)
-find "$OUT/bin" -type f ! -lname '*' -exec "$STRIP" -s {} + 2>/dev/null || true
+find "$OUT/bin" -type f ! -lname '*' -exec "$CROSS_STRIP" -s {} + 2>/dev/null || true
 log "Done -> $OUT"

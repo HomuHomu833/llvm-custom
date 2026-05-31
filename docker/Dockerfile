@@ -16,7 +16,7 @@ ARG REPO_OWNER=HomuHomu833
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils unzip git make cmake ninja-build \
-        build-essential patchelf file tree python3 \
+        build-essential patchelf file tree python3 zlib-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # zig (provides the cross C/C++ toolchain for linux/bsd targets)
@@ -34,6 +34,5 @@ RUN curl -fSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_M
 RUN git clone --depth 1 "https://github.com/${REPO_OWNER}/zig-as-llvm" /opt/zig-as-llvm
 # llvm-mingw before zig-as-llvm: mingw ar/cc/c++ must resolve to llvm-mingw,
 # not zig-as-llvm which is only for linux/bsd targets via zig
-ENV PATH="/opt/zig:/opt/llvm-mingw/bin:/opt/zig-as-llvm/bin:${PATH}"
 
 WORKDIR /work
