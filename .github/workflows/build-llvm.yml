@@ -50,13 +50,14 @@ jobs:
           remove-docker-images: true
           build-mount-path: /mnt
 
-      - name: Move Docker data root to /mnt
+      - name: Move Docker to /mnt
         run: |
           sudo systemctl stop docker.socket docker.service
-          sudo mv /var/lib/docker /mnt/docker
+          sudo mkdir -p /mnt/docker
+          sudo rsync -aqP /var/lib/docker/ /mnt/docker/
+          sudo rm -rf /var/lib/docker
           sudo ln -s /mnt/docker /var/lib/docker
           sudo systemctl start docker
-          df -h
 
       - uses: actions/checkout@v5
 
