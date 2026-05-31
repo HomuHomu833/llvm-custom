@@ -37,8 +37,6 @@ jobs:
       matrix:
         target: ${{ fromJSON(inputs.targets) }}
     runs-on: ubuntu-24.04
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/llvm-builder:latest
     steps:
       - name: Maximize build space
         uses: easimon/maximize-build-space@v10
@@ -60,8 +58,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build LLVM (in builder image)
+      - name: Build LLVM
         run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llvm-builder:latest"
           docker run --rm \
             -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" \
             -e HOME=/work \
@@ -72,10 +71,12 @@ jobs:
             -e NDK_REVISION='${{ inputs.revision }}' \
             -e PROJECTS='${{ inputs.projects }}' \
             -e ROOTDIR=/work \
-            -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository_owner }}/llvm-custom' \
+            -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository }}' \
             -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
             "$IMAGE" \
             bash -c 'scripts/fetch-source.sh && scripts/build.sh'
+        env:
+          IMAGE: ghcr.io/${{ env.OWNER }}/llvm-builder:latest
 
       - name: Package
         run: |

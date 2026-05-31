@@ -3,8 +3,8 @@
 # fetch that source, and apply the android + global (+ per-patchset) patches.
 # Writes $ROOTDIR/.build-env for build.sh to source.
 #
-#   NDK_VERSION   required (e.g. 30)
-#   NDK_REVISION  optional (e.g. b)
+#   NDK_VERSION   required (e.g. 26)
+#   NDK_REVISION  optional (e.g. d)
 #   PATCHSET      optional extra patch dir under patches/ (e.g. musl)
 #   ROOTDIR       work dir (default: cwd)
 set -euo pipefail
