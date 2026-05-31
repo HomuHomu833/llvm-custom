@@ -311,6 +311,7 @@ jobs:
             -DPython3_EXECUTABLE="$(command -v python3.11)" \
             -DPython3_INCLUDE_DIR="${TARGET_INSTALL_DIR}/include/python3.11" \
             -DPython3_LIBRARY="${TARGET_INSTALL_DIR}/lib/libpython3.11.a" \
+            -DLLDB_PYTHON_RELATIVE_PATH="lib/python3.11/site-packages" \
             -DLLDB_EMBED_PYTHON_HOME=OFF \
             -DLLDB_ENABLE_LUA=OFF \
             -DLLDB_ENABLE_LZMA=OFF \
