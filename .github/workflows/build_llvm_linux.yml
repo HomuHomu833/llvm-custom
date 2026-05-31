@@ -1,4 +1,4 @@
-name: Build LLVM (musl libc)
+name: Build LLVM (Linux)
 run-name: Build LLVM for r${{inputs.version}}${{inputs.revision}} ${{inputs.projects}}
 on:
   workflow_dispatch:
@@ -29,8 +29,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # x86_64-linux-muslx32
-        target: [aarch64-linux-musl]
+        # x86_64-linux-gnux32
+        target: [aarch64-linux-musl, aarch64-linux-gnu, aarch64_be-linux-gnu, arm-linux-gnueabi, arm-linux-musleabihf, arm-linux-gnueabihf, armeb-linux-gnueabi, armeb-linux-gnueabihf, hexagon-linux-musl, loongarch64-linux-gnu, loongarch64-linux-muslf32, loongarch64-linux-gnusf, mips-linux-gnueabi, mips-linux-gnueabihf, mips64-linux-gnuabin32, mips64-linux-gnuabi64, mips64el-linux-gnuabin32, mips64el-linux-gnuabi64, mipsel-linux-gnueabi, mipsel-linux-gnueabihf, powerpc-linux-musleabi, powerpc-linux-musleabihf, powerpc64-linux-musl, powerpc64le-linux-gnu, riscv32-linux-gnu, riscv64-linux-gnu, s390x-linux-gnu, thumb-linux-musleabi, thumb-linux-musleabihf, thumbeb-linux-musleabi, thumbeb-linux-musleabihf, x86-linux-musl, x86-linux-gnu, x86_64-linux-musl, x86_64-linux-gnu]
     runs-on: ubuntu-24.04
     env:
       ROOTDIR: ${{github.workspace}}
@@ -255,66 +255,6 @@ jobs:
             -DPACKAGE_BUGREPORT="https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/"
 
           cmake --build "${TARGET_BUILD_DIR}" --target install
-
-      - name: Bundle musl loader and wrap binaries
-        run: |
-          TOOLCHAIN=${PWD}/zig-as-llvm
-          NDK_BIN="$ROOTDIR/android-ndk-r${{inputs.version}}${{inputs.revision}}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          TC="$ROOTDIR/llvm-${{matrix.target}}"
-
-          # Determine the ELF interpreter the shipped binaries request (e.g.
-          # /lib/ld-musl-x86_64.so.1) by reading a real built binary.
-          INTERP=""
-          for cand in "$TC"/bin/*; do
-              "${NDK_BIN}/llvm-readelf" -h "$cand" >/dev/null 2>&1 || continue
-              INTERP=$("${NDK_BIN}/llvm-readelf" -l "$cand" 2>/dev/null \
-                  | sed -n 's/.*\[Requesting program interpreter: \(.*\)\]/\1/p')
-              [ -n "$INTERP" ] && break
-          done
-          if [ -z "$INTERP" ]; then
-              echo "Binaries are statically linked (no interpreter) - no loader bundle needed."
-              exit 0
-          fi
-          LOADER_NAME=$(basename "$INTERP")
-
-          # musl's libc.so (built by zig) doubles as the program loader. Locate it.
-          LIBC_SO=$(find "${HOME}/.cache/zig" "${ZIG_GLOBAL_CACHE_DIR:-/nonexistent}" "${ZIG_LOCAL_CACHE_DIR:-/nonexistent}" -name 'libc.so*' 2>/dev/null | head -n 1)
-          if [ -z "$LIBC_SO" ]; then
-              echo "ERROR: could not locate musl libc.so (loader) in zig cache" >&2
-              exit 1
-          fi
-
-          # Bundle the loader, then replace each ELF in bin/ with a launcher that runs the
-          # real binary via the bundled loader with an $ORIGIN-relative library path, so the
-          # toolchain runs on systems lacking a system ld-musl (Android, glibc distros).
-          mkdir -p "$TC/lib" "$TC/libexec/llvm"
-          cp "$LIBC_SO" "$TC/lib/$LOADER_NAME"
-          chmod 0755 "$TC/lib/$LOADER_NAME"
-          ln -sf "$LOADER_NAME" "$TC/lib/libc.so"
-
-          mv "$TC"/bin/* "$TC/libexec/llvm/" 2>/dev/null || true
-          for f in "$TC"/libexec/llvm/*; do
-              name=$(basename "$f")
-              if "${NDK_BIN}/llvm-readelf" -h "$f" >/dev/null 2>&1; then
-                  # ELF (or symlink to ELF): generate a loader-launcher wrapper in bin/.
-                  # Uses the runtime basename so multi-name tools (clang++, ld.lld, ...) keep
-                  # their argv[0]-based behaviour.
-                  printf '%s\n' \
-                      '#!/bin/sh' \
-                      'p=$0' \
-                      'case $p in */*) ;; *) p=$(command -v -- "$p") ;; esac' \
-                      'd=$(cd -- "$(dirname -- "$p")" && pwd -P)' \
-                      'n=${0##*/}' \
-                      'export LLVM_MAIN_EXECUTABLE="$d/../libexec/llvm/$n"' \
-                      "exec \"\$d/../lib/$LOADER_NAME\" --library-path \"\$d/../lib\" \"\$d/../libexec/llvm/\$n\" \"\$@\"" \
-                      > "$TC/bin/$name"
-                  chmod 0755 "$TC/bin/$name"
-              else
-                  # Non-ELF helper (perl/python/shell script) or dangling link: keep as-is.
-                  mv "$f" "$TC/bin/$name"
-              fi
-          done
-          echo "Bundled loader $LOADER_NAME and wrapped $(find "$TC/libexec/llvm" -maxdepth 1 -type f | wc -l) binaries."
 
       - name: Check
         run: |
