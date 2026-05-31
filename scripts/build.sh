@@ -30,6 +30,10 @@ OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# Resolve a command to its full absolute path — CMake does not honour PATH for
+# CMAKE_AR / CMAKE_RANLIB / etc. and treats bare names as relative paths.
+need() { command -v "$1" || { echo "missing: $1" >&2; exit 1; }; }
+
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
 CFLAGS=""; LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
@@ -44,7 +48,8 @@ case "$PLATFORM" in
     TRIPLE="${TARGET}${API}"; LDFLAGS="-static-libstdc++"
     ;;
   linux)   # gnu + musl, via the zig-as-llvm wrapper (on PATH in the image)
-    CC=cc; CXX=c++; AR=ar; RANLIB=ranlib; STRIP=strip; OBJCOPY=objcopy; LD=ld
+    CC="$(need cc)"; CXX="$(need c++)"; AR="$(need ar)"; RANLIB="$(need ranlib)"
+    STRIP="$(need strip)"; OBJCOPY="$(need objcopy)"; LD="$(need ld)"
     case "$TARGET" in
       *musl*) CFLAGS="-static"; LDFLAGS="-static"
               # patch zig's musl sources (tmpfile/tmpnam/faccessat) if present
@@ -53,7 +58,8 @@ case "$PLATFORM" in
     esac
     ;;
   bsd)     # via zig-as-llvm; CMAKE_SYSTEM_NAME from the OS field of the triple
-    CC=cc; CXX=c++; AR=ar; RANLIB=ranlib; STRIP=strip; OBJCOPY=objcopy; LD=ld
+    CC="$(need cc)"; CXX="$(need c++)"; AR="$(need ar)"; RANLIB="$(need ranlib)"
+    STRIP="$(need strip)"; OBJCOPY="$(need objcopy)"; LD="$(need ld)"
     case "$(echo "$TARGET" | cut -d- -f2)" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
@@ -62,8 +68,10 @@ case "$PLATFORM" in
     LDFLAGS="-static-libstdc++"
     ;;
   windows) # via llvm-mingw (on PATH in the image)
-    CC="${TARGET}-clang"; CXX="${TARGET}-clang++"; AR="${TARGET}-ar"
-    RANLIB="${TARGET}-ranlib"; STRIP="${TARGET}-strip"; OBJCOPY="${TARGET}-objcopy"; LD="${TARGET}-ld"
+    CC="$(need "${TARGET}-clang")"; CXX="$(need "${TARGET}-clang++")"
+    AR="$(need "${TARGET}-ar")"; RANLIB="$(need "${TARGET}-ranlib")"
+    STRIP="$(need "${TARGET}-strip")"; OBJCOPY="$(need "${TARGET}-objcopy")"
+    LD="$(need "${TARGET}-ld")"
     SYSTEM_NAME=Windows; LDFLAGS="-static-libstdc++ -static-libgcc -pthread"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
