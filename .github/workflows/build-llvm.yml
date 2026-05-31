@@ -48,14 +48,15 @@ jobs:
           remove-haskell: true
           remove-codeql: true
           remove-docker-images: true
+          build-mount-path: /mnt
 
       - name: Move Docker data root to /mnt
         run: |
-          sudo systemctl stop docker
+          sudo systemctl stop docker.socket docker.service
           sudo mv /var/lib/docker /mnt/docker
           sudo ln -s /mnt/docker /var/lib/docker
           sudo systemctl start docker
-          df -h  # verify space
+          df -h
 
       - uses: actions/checkout@v5
 
