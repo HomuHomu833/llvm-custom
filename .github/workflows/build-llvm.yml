@@ -75,8 +75,6 @@ jobs:
             -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
             "$IMAGE" \
             bash -c 'scripts/fetch-source.sh && scripts/build.sh'
-        env:
-          IMAGE: ghcr.io/${{ env.OWNER }}/llvm-builder:latest
 
       - name: Package
         run: |

@@ -13,8 +13,13 @@ on:
         type: string
       projects:
         description: "Projects to build:"
+        # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
         default: "bolt;clang;clang-tools-extra;lld"
         required: true
+
+permissions:
+  contents: write
+  packages: read
 
 jobs:
   build:
@@ -25,6 +30,7 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
+      # riscv32-netbsd-none, powerpc-freebsd-eabihf, sparc64-openbsd-none
       targets: >-
         ["aarch64-freebsd-none", "aarch64-netbsd-none", "aarch64_be-netbsd-none",
          "arm-freebsd-eabihf", "arm-netbsd-eabi", "arm-netbsd-eabihf",

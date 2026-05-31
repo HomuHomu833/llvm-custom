@@ -13,8 +13,13 @@ on:
         type: string
       projects:
         description: "Projects to build:"
+        # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
         default: "bolt;clang;clang-tools-extra;lld"
         required: true
+
+permissions:
+  contents: write
+  packages: read
 
 jobs:
   build:
@@ -25,4 +30,5 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
+      # armv7-w64-mingw32, arm64ec-w64-mingw32
       targets: '["aarch64-w64-mingw32", "i686-w64-mingw32", "x86_64-w64-mingw32"]'

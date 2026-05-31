@@ -13,8 +13,13 @@ on:
         type: string
       projects:
         description: "Projects to build:"
+        # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
         default: "bolt;clang;clang-tools-extra;lld"
         required: true
+
+permissions:
+  contents: write
+  packages: read
 
 jobs:
   build:
@@ -28,6 +33,7 @@ jobs:
       # gnu + musl both shipped for common arches; musl-only where zig has no glibc
       # variant. musl targets are auto-detected (static link + musl patch set) by the
       # build scripts.
+      # x86_64-linux-gnux32
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
          "arm-linux-gnueabi", "arm-linux-musleabihf", "arm-linux-gnueabihf",

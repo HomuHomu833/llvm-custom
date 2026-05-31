@@ -13,8 +13,13 @@ on:
         type: string
       projects:
         description: "Projects to build:"
+        # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
         default: "bolt;clang;clang-tools-extra;lld"
         required: true
+
+permissions:
+  contents: write
+  packages: read
 
 jobs:
   build:
@@ -25,4 +30,5 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
+      # riscv64-linux-android
       targets: '["aarch64-linux-android", "armv7a-linux-androideabi", "i686-linux-android", "x86_64-linux-android"]'
