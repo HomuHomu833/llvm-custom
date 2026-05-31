@@ -49,6 +49,14 @@ jobs:
           remove-codeql: true
           remove-docker-images: true
 
+      - name: Move Docker data root to /mnt
+        run: |
+          sudo systemctl stop docker
+          sudo mkdir -p /mnt/docker-data
+          echo '{ "data-root": "/mnt/docker-data" }' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          sudo systemctl is-active docker
+
       - uses: actions/checkout@v5
 
       - name: Log in to GHCR
