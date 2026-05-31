@@ -24,16 +24,16 @@ RUN curl -fSL "https://ziglang.org/builds/zig-x86_64-linux-${ZIG_VERSION}.tar.xz
       | tar -xJ -C /opt \
     && mv "/opt/zig-x86_64-linux-${ZIG_VERSION}" /opt/zig \
     && chmod -R a+w /opt/zig/lib   # build.sh overlays patches/musl/zig here at run time (non-root)
-ENV PATH="/opt/zig:${PATH}"
 
 # llvm-mingw (windows targets)
 RUN curl -fSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz" \
       | tar -xJ -C /opt \
     && mv "/opt/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64" /opt/llvm-mingw
-ENV PATH="/opt/llvm-mingw/bin:${PATH}"
 
 # zig-as-llvm: thin cc/c++/ar/... wrappers around zig, keyed off $ZIG_TARGET
 RUN git clone --depth 1 "https://github.com/${REPO_OWNER}/zig-as-llvm" /opt/zig-as-llvm
-ENV PATH="/opt/zig-as-llvm/bin:${PATH}"
+# llvm-mingw before zig-as-llvm: mingw ar/cc/c++ must resolve to llvm-mingw,
+# not zig-as-llvm which is only for linux/bsd targets via zig
+ENV PATH="/opt/zig:/opt/llvm-mingw/bin:/opt/zig-as-llvm/bin:${PATH}"
 
 WORKDIR /work
