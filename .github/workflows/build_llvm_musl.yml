@@ -125,7 +125,10 @@ jobs:
           cp -R $ROOTDIR/patches/musl/zig/* $(whereis zig | awk '{print $2}' | xargs dirname)
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build swig python3.11
+        run: |
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt update
+          sudo apt install -y ninja-build swig python3.11
 
       - name: Build dependencies
         run: |
@@ -371,6 +374,7 @@ jobs:
                       'case $p in */*) ;; *) p=$(command -v -- "$p") ;; esac' \
                       'd=$(cd -- "$(dirname -- "$p")" && pwd -P)' \
                       'n=${0##*/}' \
+                      'export LLVM_MAIN_EXECUTABLE="$d/../libexec/llvm/$n"' \
                       "exec \"\$d/../lib/$LOADER_NAME\" --library-path \"\$d/../lib\" \"\$d/../libexec/llvm/\$n\" \"\$@\"" \
                       > "$TC/bin/$name"
                   chmod 0755 "$TC/bin/$name"

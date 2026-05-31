@@ -108,7 +108,10 @@ jobs:
           mv llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64 llvm-mingw
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build swig python3.11 mingw-w64-tools
+        run: |
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt update
+          sudo apt install -y ninja-build swig python3.11 mingw-w64-tools
 
       - name: Build dependencies
         run: |

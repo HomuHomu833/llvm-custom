@@ -1,0 +1,12 @@
+diff --git a/llvm/lib/Support/Unix/Path.inc b/llvm/lib/Support/Unix/Path.inc
+--- a/llvm/lib/Support/Unix/Path.inc
++++ b/llvm/lib/Support/Unix/Path.inc
+@@ -228,2 +228,8 @@
++  // Allow a launcher (e.g. the bundled musl-loader wrapper) to report the real
++  // program path, so self-location does not resolve to the dynamic loader when
++  // the binary is started via `ld-musl-*.so.1 --library-path ... prog`.
++  if (const char *OverridePath = ::getenv("LLVM_MAIN_EXECUTABLE"))
++    if (*OverridePath)
++      return OverridePath;
+   char exe_path[PATH_MAX];
+   const char *aPath = "/proc/self/exe";

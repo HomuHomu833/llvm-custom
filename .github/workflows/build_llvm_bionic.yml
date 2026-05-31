@@ -108,7 +108,10 @@ jobs:
           echo "All patches applied successfully."
 
       - name: Install dependencies
-        run: sudo apt install -y ninja-build swig python3.11
+        run: |
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt update
+          sudo apt install -y ninja-build swig python3.11
 
       - name: Build dependencies
         run : |
