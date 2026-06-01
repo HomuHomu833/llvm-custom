@@ -66,6 +66,7 @@ case "$PLATFORM" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
       openbsd) SYSTEM_NAME=OpenBSD ;;
+      macos|maccatalyst) SYSTEM_NAME=Darwin ;;
     esac
     ;;
   windows)
@@ -75,13 +76,6 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
     SYSTEM_NAME=Windows
-    # Statically link ONLY the mingw C++/unwind/pthread runtime so the binaries carry
-    # no libc++.dll / libunwind.dll / libwinpthread-1.dll dependency, while UCRT, Win32
-    # and everything else stay dynamic -- a blanket `-static` (and LLVM_BUILD_STATIC=ON)
-    # would defeat the dynamic linking that pass plugins rely on to resolve symbols.
-    # -static-libstdc++ -> static libc++ ; -static-libgcc -> static libunwind. winpthread
-    # has no -static-* switch and clang's driver appends it last, so force the static copy
-    # via --whole-archive under -Bstatic before returning to dynamic linking.
     CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
