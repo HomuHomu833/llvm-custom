@@ -81,7 +81,7 @@ mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
   curl -sSfL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x -C "$ROOTDIR"
-  ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" CC="$CROSS_CC" CFLAGS="-static $CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
+  ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
