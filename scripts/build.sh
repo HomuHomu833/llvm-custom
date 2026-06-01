@@ -146,9 +146,16 @@ args=(
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
 )
-# bionic's NDK clang resolves zstd against its sysroot unless pointed at our
-# bundled static build explicitly (matches upstream's bionic-only override).
-[ "$PLATFORM" = bionic ] && args+=(-Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include")
+# Pin zlib + zstd to our bundled static builds so find_package() can't resolve
+# them against the host (the build image ships zlib1g-dev/libzstd-dev) or a
+# toolchain sysroot. Otherwise an incompatible host .so slips onto the link line,
+# lld drops it as incompatible, and zlib/zstd symbols (compressBound, compress2,
+# uncompress, ...) end up undefined. Upstream only overrides this for bionic; we
+# do it for every cross target since the bundled static libs always exist here.
+args+=(
+  -DZLIB_LIBRARY="$INSTALL_DIR/lib/libz.a" -DZLIB_INCLUDE_DIR="$INSTALL_DIR/include"
+  -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
+)
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
