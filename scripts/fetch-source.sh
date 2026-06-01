@@ -59,6 +59,13 @@ if [ ! -d "$SRC" ]; then
   curl -sSfL "https://android.googlesource.com/toolchain/llvm-project/+archive/$LLVM_REV.tar.gz" | tar -xz -C "$SRC"
 fi
 
+# Make $SRC its own git repo. In CI the repo checkout is the mount root (/work)
+# and $SRC sits *inside* it, so `git apply` would otherwise discover /work/.git,
+# resolve the patch paths against that outer root, and silently no-op with exit
+# 0 - patches look applied but the tree is untouched (and strict mode never
+# aborts). With a .git here, $SRC is the nearest repo and patches apply for real.
+git init -q "$SRC"
+
 log "Applying llvm_android patches"
 rm -rf "$ROOTDIR/llvm_android"
 git clone --quiet https://android.googlesource.com/toolchain/llvm_android "$ROOTDIR/llvm_android"
