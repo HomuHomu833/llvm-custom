@@ -93,12 +93,18 @@ export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
-  curl -L --fail --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 15 --speed-limit 1024 --speed-time 30 --progress-bar https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x -C "$ROOTDIR"
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o /tmp/zlib.tar.xz \
+    https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
+  && xz -d < /tmp/zlib.tar.xz | tar -x -C "$ROOTDIR" \
+  && rm /tmp/zlib.tar.xz
   ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
-  curl -L --fail --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 15 --speed-limit 1024 --speed-time 30 --progress-bar https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz | gzip -d | tar -x -C "$ROOTDIR"
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o /tmp/zstd.tar.gz \
+    https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
+  && gzip -d < /tmp/zstd.tar.gz | tar -x -C "$ROOTDIR" \
+  && rm /tmp/zstd.tar.gz
   cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
     -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
     -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
