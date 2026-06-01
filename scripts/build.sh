@@ -32,7 +32,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
-CROSS_CFLAGS=""; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
+CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
 # LLVM_BUILD_STATIC mirrors upstream per platform: ON for the fully-static targets
 # (bionic/musl), OFF for the dynamically-linked bsd/windows builds. Windows only
 # statically links the mingw C++/unwind/pthread runtime (see the windows case),
@@ -53,7 +53,7 @@ case "$PLATFORM" in
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
     case "$TARGET" in
-      *musl*) CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
+      *musl*) CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
       *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
@@ -82,7 +82,6 @@ case "$PLATFORM" in
     # -static-libstdc++ -> static libc++ ; -static-libgcc -> static libunwind. winpthread
     # has no -static-* switch and clang's driver appends it last, so force the static copy
     # via --whole-archive under -Bstatic before returning to dynamic linking.
-    CROSS_CFLAGS=""
     CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
