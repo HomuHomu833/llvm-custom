@@ -19,6 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential patchelf file tree python3 zlib1g-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# qemu-user-static so the official NDK's x86_64 prebuilt binaries run on other hosts
+RUN arch="$(uname -m)"; \
+    if [ "$arch" != x86_64 ]; then \
+        apt-get update && apt-get install -y --no-install-recommends qemu-user-static \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # zig (provides the cross C/C++ toolchain for linux/bsd targets)
 RUN arch="$(uname -m)"; \
     case "$arch" in \
