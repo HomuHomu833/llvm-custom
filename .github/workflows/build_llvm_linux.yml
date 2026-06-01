@@ -30,9 +30,6 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
-      # gnu + musl both shipped for common arches; musl-only where zig has no glibc
-      # variant. musl targets are auto-detected (static link + musl patch set) by the
-      # build scripts.
       # x86_64-linux-gnux32
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
