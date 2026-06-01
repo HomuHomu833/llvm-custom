@@ -19,15 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential patchelf file tree python3 zlib1g-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# qemu-user-static so the official NDK's x86_64 prebuilt binaries run on other hosts
+# qemu-user-static + x86_64 libs so the NDK's prebuilt binaries run on non-x86 hosts
 RUN arch="$(uname -m)"; \
     if [ "$arch" != x86_64 ]; then \
-        . /etc/os-release \
-        && dpkg --add-architecture amd64 \
-        && find /etc/apt -name "*.list" -exec sed -i "s/^deb /deb [arch=$arch] /g" {} + \
-        && find /etc/apt -name "*.sources" -exec sed -i "/^Types:/a Architectures: $arch" {} + \
-        && echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu $VERSION_CODENAME main universe" >> /etc/apt/sources.list \
-        && apt-get update && apt-get install -y --no-install-recommends qemu-user-static libc6:amd64 \
+        apt-get update && apt-get install -y --no-install-recommends \
+            qemu-user-static libc6-amd64-cross \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -57,6 +53,8 @@ RUN arch="$(uname -m)"; \
 # dirs: build.sh invokes those by absolute path, and keeping them off PATH leaves
 # `cc`/`c++` resolving to the host gcc that LLVM's cross build uses to bootstrap
 # its native tablegen.
+ENV QEMU_LD_PREFIX=/usr/x86_64-linux-gnu
+
 ENV PATH="/opt/zig:${PATH}"
 
 # llvm-mingw (windows targets; only x86_64 / aarch64 linux hosts)
