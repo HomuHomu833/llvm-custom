@@ -39,7 +39,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 if [ ! -d "$NDK_DIR" ]; then
   log "Downloading NDK r${NDK_VERSION}${NDK_REVISION}"
-  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o "$ROOTDIR/android-ndk.zip" \
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir="$ROOTDIR" -o android-ndk.zip \
     "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}-linux.zip"
   unzip -qq "$ROOTDIR/android-ndk.zip" -d "$ROOTDIR"
   rm -f "$ROOTDIR/android-ndk.zip"
@@ -56,7 +56,7 @@ log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV"
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
   mkdir -p "$SRC"
-  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o "$SRC.tar.gz" \
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir="$(dirname "$SRC")" -o "$(basename "$SRC").tar.gz" \
     "https://android.googlesource.com/toolchain/llvm-project/+archive/$LLVM_REV.tar.gz"
   tar -xz -C "$SRC" -f "$SRC.tar.gz"
   rm -f "$SRC.tar.gz"

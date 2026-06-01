@@ -93,7 +93,7 @@ export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
-  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o /tmp/zlib.tar.xz \
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o zlib.tar.xz \
     https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
   && xz -d < /tmp/zlib.tar.xz | tar -x -C "$ROOTDIR" \
   && rm /tmp/zlib.tar.xz
@@ -101,7 +101,7 @@ if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
-  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 -o /tmp/zstd.tar.gz \
+  aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o zstd.tar.gz \
     https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
   && gzip -d < /tmp/zstd.tar.gz | tar -x -C "$ROOTDIR" \
   && rm /tmp/zstd.tar.gz
