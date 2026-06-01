@@ -25,6 +25,14 @@ RUN curl -fSL "https://ziglang.org/builds/zig-x86_64-linux-${ZIG_VERSION}.tar.xz
     && mv "/opt/zig-x86_64-linux-${ZIG_VERSION}" /opt/zig \
     && chmod -R a+w /opt/zig/lib   # build.sh overlays patches/musl/zig here at run time (non-root)
 
+# zig-as-llvm's cc/c++/ar/strip/... wrappers exec a bare `zig`, and build.sh
+# overlays the musl libc fixes next to the zig binary ($(dirname $(command -v zig))).
+# Both need zig on PATH. Only zig is added -- NOT the zig-as-llvm / llvm-mingw bin
+# dirs: build.sh invokes those by absolute path, and keeping them off PATH leaves
+# `cc`/`c++` resolving to the host gcc that LLVM's cross build uses to bootstrap
+# its native tablegen.
+ENV PATH="/opt/zig:${PATH}"
+
 # llvm-mingw (windows targets)
 RUN curl -fSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz" \
       | tar -xJ -C /opt \

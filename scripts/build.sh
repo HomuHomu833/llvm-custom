@@ -33,6 +33,9 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
 CROSS_CFLAGS=""; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
+# LLVM_BUILD_STATIC mirrors upstream per platform: ON for the fully-static targets
+# (bionic/musl/windows), OFF for the dynamically-linked bsd build.
+LLVM_STATIC=OFF
 
 case "$PLATFORM" in
   bionic)
@@ -41,14 +44,14 @@ case "$PLATFORM" in
     CROSS_CC="$TC/bin/${TARGET}${API}-clang"; CROSS_CXX="${CROSS_CC}++"
     CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
-    TRIPLE="${TARGET}${API}"; CROSS_LDFLAGS="-static-libstdc++"
+    TRIPLE="${TARGET}${API}"; LLVM_STATIC=ON
     ;;
   linux)
     TC="/opt/zig-as-llvm"
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
     case "$TARGET" in
-      *musl*) CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"
+      *musl*) CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
       *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
@@ -62,7 +65,6 @@ case "$PLATFORM" in
       netbsd)  SYSTEM_NAME=NetBSD ;;
       openbsd) SYSTEM_NAME=OpenBSD ;;
     esac
-    CROSS_LDFLAGS="-static-libstdc++"
     ;;
   windows)
     TC="/opt/llvm-mingw"
@@ -70,7 +72,7 @@ case "$PLATFORM" in
     CROSS_AR="$TC/bin/${TARGET}-ar"; CROSS_RANLIB="$TC/bin/${TARGET}-ranlib"
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
-    SYSTEM_NAME=Windows; CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -pthread"
+    SYSTEM_NAME=Windows; CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
@@ -81,7 +83,7 @@ mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
   curl -sSfL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz | xz -d | tar -x -C "$ROOTDIR"
-  ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
+  ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
@@ -115,7 +117,7 @@ args=(
   -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
   -DLLVM_ENABLE_PROJECTS="$PROJECTS"
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON -DLLVM_USE_STATIC_ZSTD=ON
-  -DLLVM_BUILD_STATIC=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_LINK_LLVM_DYLIB=OFF
+  -DLLVM_BUILD_STATIC=$LLVM_STATIC -DBUILD_SHARED_LIBS=OFF -DLLVM_LINK_LLVM_DYLIB=OFF
   -DLIBCLANG_BUILD_STATIC=ON -DCLANG_ENABLE_ARCMT=OFF -DCMAKE_SKIP_INSTALL_RPATH=TRUE
   -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_BUILD_BENCHMARKS=OFF
   -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_BUILD_EXAMPLES=OFF
@@ -133,6 +135,9 @@ args=(
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
 )
+# bionic's NDK clang resolves zstd against its sysroot unless pointed at our
+# bundled static build explicitly (matches upstream's bionic-only override).
+[ "$PLATFORM" = bionic ] && args+=(-Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include")
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
@@ -140,6 +145,9 @@ cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install
 
-# strip installed binaries (llvm-strip is format-agnostic: ELF/PE/Mach-O)
-find "$OUT/bin" -type f ! -lname '*' -exec "$CROSS_STRIP" -s {} + 2>/dev/null || true
+# strip installed binaries one at a time: the zig-as-llvm strip wrapper only
+# handles a single file argument, and real llvm-strip is fine either way.
+find "$OUT/bin" -type f ! -lname '*' | while IFS= read -r f; do
+  "$CROSS_STRIP" "$f" 2>/dev/null || true
+done
 log "Done -> $OUT"

@@ -5,16 +5,28 @@
 #
 #   NDK_VERSION   required (e.g. 26)
 #   NDK_REVISION  optional (e.g. d)
-#   PATCHSET      optional extra patch dir under patches/ (e.g. musl)
+#   PLATFORM      optional (bionic|linux|bsd|windows); picks the default patch set
+#                 and the bionic-only source fixups
+#   PATCHSET      optional extra patch dir under patches/ (e.g. musl); overrides
+#                 the PLATFORM-based default
 #   ROOTDIR       work dir (default: cwd)
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
 : "${NDK_VERSION:?set NDK_VERSION}"
 NDK_REVISION="${NDK_REVISION:-}"
-# auto-select the musl patch set for musl targets (merged linux workflow)
+# The musl patch set carries source fixes every zig-built target needs (linux +
+# bsd); bionic (NDK clang) and windows (llvm-mingw) don't use it. This mirrors
+# upstream, which applies patches/musl/llvm in both the musl and bsd workflows.
 PATCHSET="${PATCHSET:-}"
-if [ -z "$PATCHSET" ] && [ "${TARGET:-}" != "${TARGET#*musl}" ]; then PATCHSET=musl; fi
+if [ -z "$PATCHSET" ]; then
+  case "${PLATFORM:-}" in
+    linux|bsd) PATCHSET=musl ;;
+    "") case "${TARGET:-}" in
+          *musl*|*-freebsd-*|*-netbsd-*|*-openbsd-*) PATCHSET=musl ;;
+        esac ;;
+  esac
+fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PATCHES_DIR="${PATCHES_DIR:-$SCRIPT_DIR/../patches}"
 
@@ -71,6 +83,15 @@ apply_set() {
 }
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_VERSION" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_VERSION" strict
+
+# bionic: llvm-rtdyld's x86_64/ELF/linux fast path doesn't compile for Android;
+# gate it on !__ANDROID__ so the bionic cross build succeeds (mirrors upstream).
+if [ "${PLATFORM:-}" = bionic ]; then
+  log "bionic: guarding llvm-rtdyld x86_64 ELF block on !__ANDROID__"
+  sed -i '/^#if defined(__x86_64__) && defined(__ELF__) && defined(__linux__)$/ {
+    /&& !defined(__ANDROID__)/! s/$/ \&\& !defined(__ANDROID__)/
+  }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
+fi
 
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
