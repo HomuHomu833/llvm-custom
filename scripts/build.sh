@@ -34,7 +34,9 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 export ZIG_TARGET="$TARGET"
 CROSS_CFLAGS=""; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
 # LLVM_BUILD_STATIC mirrors upstream per platform: ON for the fully-static targets
-# (bionic/musl/windows), OFF for the dynamically-linked bsd build.
+# (bionic/musl), OFF for the dynamically-linked bsd/windows builds. Windows only
+# statically links the mingw C++/unwind/pthread runtime (see the windows case),
+# not the whole binary, so pass plugins can still resolve symbols dynamically.
 LLVM_STATIC=OFF
 
 case "$PLATFORM" in
@@ -72,7 +74,16 @@ case "$PLATFORM" in
     CROSS_AR="$TC/bin/${TARGET}-ar"; CROSS_RANLIB="$TC/bin/${TARGET}-ranlib"
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
-    SYSTEM_NAME=Windows; CROSS_CFLAGS="-static"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
+    SYSTEM_NAME=Windows
+    # Statically link ONLY the mingw C++/unwind/pthread runtime so the binaries carry
+    # no libc++.dll / libunwind.dll / libwinpthread-1.dll dependency, while UCRT, Win32
+    # and everything else stay dynamic -- a blanket `-static` (and LLVM_BUILD_STATIC=ON)
+    # would defeat the dynamic linking that pass plugins rely on to resolve symbols.
+    # -static-libstdc++ -> static libc++ ; -static-libgcc -> static libunwind. winpthread
+    # has no -static-* switch and clang's driver appends it last, so force the static copy
+    # via --whole-archive under -Bstatic before returning to dynamic linking.
+    CROSS_CFLAGS=""
+    CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
