@@ -39,7 +39,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 if [ ! -d "$NDK_DIR" ]; then
   log "Downloading NDK r${NDK_VERSION}${NDK_REVISION}"
-  curl -sSfL -o "$ROOTDIR/android-ndk.zip" \
+  curl -L --fail --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 15 --speed-limit 1024 --speed-time 30 --progress-bar -o "$ROOTDIR/android-ndk.zip" \
     "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}-linux.zip"
   unzip -qq "$ROOTDIR/android-ndk.zip" -d "$ROOTDIR"
   rm -f "$ROOTDIR/android-ndk.zip"
@@ -56,7 +56,10 @@ log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV"
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
   mkdir -p "$SRC"
-  curl -sSfL "https://android.googlesource.com/toolchain/llvm-project/+archive/$LLVM_REV.tar.gz" | tar -xz -C "$SRC"
+  curl -L --fail --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 15 --speed-limit 1024 --speed-time 30 --progress-bar -o "$SRC.tar.gz" \
+    "https://android.googlesource.com/toolchain/llvm-project/+archive/$LLVM_REV.tar.gz"
+  tar -xz -C "$SRC" -f "$SRC.tar.gz"
+  rm -f "$SRC.tar.gz"
 fi
 
 # Make $SRC its own git repo. In CI the repo checkout is the mount root (/work)
