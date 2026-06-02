@@ -1,0 +1,58 @@
+diff --git a/X86_64.cpp b/X86_64.cpp
+index de45901..0f439e1 100644
+--- a/X86_64.cpp
++++ b/X86_64.cpp
+@@ -545,12 +545,26 @@ static void relaxTlsIeToLe(uint8_t *loc, const Relocation &, uint64_t val) {
+   // because LEA with these registers needs 4 bytes to encode and thus
+   // wouldn't fit the space.
+ 
+-  if (memcmp(inst, "\x48\x03\x25", 3) == 0) {
++  if (memcmp(inst, "\x44\x03\x25", 3) == 0) {
++    // "addl foo@gottpoff(%rip),%r12d" -> "addl $foo,%r12d"
++    memcpy(inst, "\x41\x81\xc4", 3);
++  } else if (memcmp(inst, "\x48\x03\x25", 3) == 0) {
+     // "addq foo@gottpoff(%rip),%rsp" -> "addq $foo,%rsp"
+     memcpy(inst, "\x48\x81\xc4", 3);
+   } else if (memcmp(inst, "\x4c\x03\x25", 3) == 0) {
+     // "addq foo@gottpoff(%rip),%r12" -> "addq $foo,%r12"
+     memcpy(inst, "\x49\x81\xc4", 3);
++  } else if (memcmp(loc - 2, "\x03\x25", 2) == 0) {
++    // "addl foo@gottpoff(%rip),%esp" -> "addl $foo,%esp"
++    memcpy(loc - 2, "\x81\xc4", 2);
++  } else if (memcmp(inst, "\x44\x03", 2) == 0) {
++    // "addl foo@gottpoff(%rip),%r[8-15]d" -> "leal foo(%r[8-15]),%r[8-15]d"
++    memcpy(inst, "\x45\x8d", 2);
++    *regSlot = 0x80 | (reg << 3) | reg;
++  } else if (memcmp(loc - 2, "\x03", 1) == 0) {
++    // "addl foo@gottpoff(%rip),%reg" -> "leal foo(%reg),%reg"
++    loc[-2] = 0x8d;
++    *regSlot = 0x80 | (reg << 3) | reg;
+   } else if (memcmp(inst, "\x4c\x03", 2) == 0) {
+     // "addq foo@gottpoff(%rip),%r[8-15]" -> "leaq foo(%r[8-15]),%r[8-15]"
+     memcpy(inst, "\x4d\x8d", 2);
+@@ -559,6 +573,14 @@ static void relaxTlsIeToLe(uint8_t *loc, const Relocation &, uint64_t val) {
+     // "addq foo@gottpoff(%rip),%reg -> "leaq foo(%reg),%reg"
+     memcpy(inst, "\x48\x8d", 2);
+     *regSlot = 0x80 | (reg << 3) | reg;
++  } else if (memcmp(inst, "\x44\x8b", 2) == 0) {
++    // "movl foo@gottpoff(%rip),%r[8-15]d" -> "movl $foo,%r[8-15]d"
++    memcpy(inst, "\x41\xc7", 2);
++    *regSlot = 0xc0 | reg;
++  } else if (memcmp(loc - 2, "\x8b", 1) == 0) {
++    // "movl foo@gottpoff(%rip),%reg" -> "movl $foo,%reg"
++    loc[-2] = 0xc7;
++    *regSlot = 0xc0 | reg;
+   } else if (memcmp(inst, "\x4c\x8b", 2) == 0) {
+     // "movq foo@gottpoff(%rip),%r[8-15]" -> "movq $foo,%r[8-15]"
+     memcpy(inst, "\x49\xc7", 2);
+@@ -568,8 +590,8 @@ static void relaxTlsIeToLe(uint8_t *loc, const Relocation &, uint64_t val) {
+     memcpy(inst, "\x48\xc7", 2);
+     *regSlot = 0xc0 | reg;
+   } else {
+-    error(getErrorLocation(loc - 3) +
+-          "R_X86_64_GOTTPOFF must be used in MOVQ or ADDQ instructions only");
++    error(getErrorLocation(loc - 2) +
++          "R_X86_64_GOTTPOFF must be used in MOVQ, ADDQ, MOVL or ADDL instructions only");
+   }
+ 
+   // The original code used a PC relative relocation.
