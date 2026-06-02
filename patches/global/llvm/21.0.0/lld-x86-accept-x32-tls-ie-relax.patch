@@ -1,7 +1,7 @@
-diff --git a/X86_64.cpp b/X86_64.cpp
+diff --git a/lld/ELF/Arch/X86_64.cpp b/lld/ELF/Arch/X86_64.cpp
 index 0c4fd00..1128ae8 100644
---- a/X86_64.cpp
-+++ b/X86_64.cpp
+--- a/lld/ELF/Arch/X86_64.cpp
++++ b/lld/ELF/Arch/X86_64.cpp
 @@ -577,12 +577,26 @@ void X86_64::relaxTlsIeToLe(uint8_t *loc, const Relocation &rel,
      // because LEA with these registers needs 4 bytes to encode and thus
      // wouldn't fit the space.
