@@ -82,15 +82,11 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# Silence noisy upstream warnings (feeds both C and C++ flags below).
-CROSS_CFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier"
-
 # macOS targets: dsymutil #includes <CoreFoundation/CoreFoundation.h>
 # and links -framework CoreFoundation, neither of which the zig toolchain ships.
 # Point the compiler + linker at a baked macOS SDK sysroot (osxcross-style
 # MacOSX.sdk, default /opt/macos-sdk) so the frameworks resolve, matching the
 # tools Google ships in the darwin prebuilt.
-DARWIN_SKIP_DSYMUTIL=
 if [ "$SYSTEM_NAME" = Darwin ]; then
   MACOS_SDK="${MACOS_SDK:-/opt/macos-sdk}"
   if [ -d "$MACOS_SDK/System/Library/Frameworks/CoreFoundation.framework" ]; then
