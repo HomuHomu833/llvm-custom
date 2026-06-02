@@ -82,6 +82,9 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
+# Silence noisy upstream warnings (feeds both C and C++ flags below).
+CROSS_CFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier"
+
 # --- zlib + zstd (static, bundled) -----------------------------------------
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
