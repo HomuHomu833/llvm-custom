@@ -91,8 +91,11 @@ if [ "$SYSTEM_NAME" = Darwin ]; then
   MACOS_SDK="${MACOS_SDK:-/opt/macos-sdk}"
   if [ -d "$MACOS_SDK/System/Library/Frameworks/CoreFoundation.framework" ]; then
     log "Using macOS SDK sysroot: $MACOS_SDK"
-    CROSS_CFLAGS="$CROSS_CFLAGS -isysroot $MACOS_SDK"
-    CROSS_LDFLAGS="${CROSS_LDFLAGS:+$CROSS_LDFLAGS }-isysroot $MACOS_SDK"
+    CROSS_CFLAGS="$CROSS_CFLAGS -iframework $MACOS_SDK/System/Library/Frameworks"
+    CROSS_LDFLAGS="${CROSS_LDFLAGS:+$CROSS_LDFLAGS} -F ${MACOS_SDK}/System/Library/Frameworks -Wl,-syslibroot,$MACOS_SDK"
+  else
+    log "macOS SDK not found at $MACOS_SDK, is the path correct?"
+    exit 1
   fi
 fi
 
