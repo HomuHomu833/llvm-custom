@@ -12,7 +12,7 @@ FROM ubuntu:24.04
 ARG ZIG_VERSION=0.17.0-dev.304+9787df942
 ARG LLVM_MINGW_VERSION=20260505
 ARG REPO_OWNER=HomuHomu833
-ARG MACOS_SDK_URL=https://github.com/joseluisq/macosx-sdks/releases/download/15.5/MacOSX15.5.sdk.tar.xz
+ARG MACOS_SDK_VERSION=15.5
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -93,7 +93,7 @@ RUN if [ ! -f /opt/.no-zig ]; then \
 # host gating. build.sh points -isysroot here for darwin targets; if the SDK is
 # ever absent it falls back to skipping dsymutil.
 RUN aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o macos-sdk.tar.xz \
-        "${MACOS_SDK_URL}" \
+        "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
     && tar -xJf /tmp/macos-sdk.tar.xz -C /opt \
     && rm /tmp/macos-sdk.tar.xz \
     && mv /opt/MacOSX*.sdk /opt/macos-sdk
