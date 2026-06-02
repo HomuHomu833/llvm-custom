@@ -12,6 +12,7 @@ FROM ubuntu:24.04
 ARG ZIG_VERSION=0.17.0-dev.304+9787df942
 ARG LLVM_MINGW_VERSION=20260505
 ARG REPO_OWNER=HomuHomu833
+ARG MACOS_SDK_URL=https://github.com/joseluisq/macosx-sdks/releases/download/15.5/MacOSX15.5.sdk.tar.xz
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -87,5 +88,14 @@ RUN if [ ! -f /opt/.no-zig ]; then \
     fi
 # llvm-mingw before zig-as-llvm: mingw ar/cc/c++ must resolve to llvm-mingw,
 # not zig-as-llvm which is only for linux/bsd targets via zig
+
+# macOS SDK -> /opt/macos-sdk. Arch-independent (headers + .tbd stubs), so no
+# host gating. build.sh points -isysroot here for darwin targets; if the SDK is
+# ever absent it falls back to skipping dsymutil.
+RUN aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o macos-sdk.tar.xz \
+        "${MACOS_SDK_URL}" \
+    && tar -xJf /tmp/macos-sdk.tar.xz -C /opt \
+    && rm /tmp/macos-sdk.tar.xz \
+    && mv /opt/MacOSX*.sdk /opt/macos-sdk
 
 WORKDIR /work
