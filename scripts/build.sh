@@ -8,7 +8,7 @@
 #                 x86_64-linux-gnu / -musl     (linux)
 #                 aarch64-freebsd-none         (bsd)
 #                 x86_64-w64-mingw32           (windows)
-#                 aarch64-macos-none           (macos)
+#                 arm64-apple-darwin           (macos)
 #   PROJECTS    LLVM_ENABLE_PROJECTS (default: bolt;clang;clang-tools-extra;lld)
 #   ROOTDIR     work dir (default: cwd)
 #   ANDROID_API bionic API level (default: 25, riscv64 forced to 35)
