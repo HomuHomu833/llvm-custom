@@ -74,7 +74,6 @@ case "$PLATFORM" in
     # zig segfaults building macOS LLVM. The wrappers carry the macOS SDK
     # sysroot themselves, so no -isysroot/-iframework juggling is needed here.
     TC="/opt/osxcross"
-    export PATH="$TC/bin:$PATH"   # so the wrappers' xcrun/helper shims resolve
     case "$TARGET" in
       aarch64-*|arm64-*) ARCH=arm64 ;;
       x86_64-*)          ARCH=x86_64 ;;
