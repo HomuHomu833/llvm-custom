@@ -103,15 +103,15 @@ RUN if [ ! -f /opt/.no-zig ]; then \
 # Arch-independent toolchain, so no host gating. Only x86_64 + arm64 wrappers are
 # built (the only macOS arches we target) to keep the image build quick.
 ARG OSXCROSS_REF=master
-RUN aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o macos-sdk.tar.xz \
-        "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
-    && git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
+RUN git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
     && git -C /tmp/osxcross checkout "$OSXCROSS_REF" \
-    && cp /tmp/macos-sdk.tar.xz /tmp/osxcross/tarballs/ \
+    && aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 \
+        --dir=/tmp/osxcross/tarballs -o "MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
+        "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
     && cd /tmp/osxcross \
     && UNATTENDED=1 ENABLE_ARCHS="x86_64 arm64" OSX_VERSION_MIN=11.0 \
        TARGET_DIR=/opt/osxcross ./build.sh \
     && cd / \
-    && rm -rf /tmp/osxcross /tmp/macos-sdk.tar.xz
+    && rm -rf /tmp/osxcross
 
 WORKDIR /work
