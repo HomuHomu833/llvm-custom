@@ -30,8 +30,6 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
-      # macOS (darwin) targets live in build_llvm_macos.yml — they build with
-      # osxcross, not zig. Still-unhandled BSD triples:
       # riscv32-netbsd-none, powerpc-freebsd-eabihf, sparc64-openbsd-none
       targets: >-
         ["aarch64-freebsd-none", "aarch64-netbsd-none",
