@@ -109,6 +109,14 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
+# When building PIC, compile the bundled zlib/zstd (and LLVM) with -fPIC and link
+# executables -pie, so the static deps match the PIE binaries -- LLVM_ENABLE_PIC
+# only covers LLVM's own objects, not the deps built with CROSS_CFLAGS.
+if [ "$LLVM_PIC" = ON ]; then
+  CROSS_CFLAGS="$CROSS_CFLAGS -fPIC"
+  CROSS_LDFLAGS="${CROSS_LDFLAGS:+$CROSS_LDFLAGS }-pie"
+fi
+
 # Extra CMake flags applied to both the zstd + LLVM configures: anything passed
 # in via the EXTRA_CMAKE_FLAGS env var, plus platform-specific additions. The
 # Darwin (osxcross) block points CMake's Apple support at the osxcross SDK +
