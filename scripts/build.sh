@@ -40,9 +40,6 @@ CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; T
 # statically links the mingw C++/unwind/pthread runtime (see the windows case),
 # not the whole binary, so pass plugins can still resolve symbols dynamically.
 LLVM_STATIC=OFF
-# PIC/PIE: off for the fully-static targets, forced on for macOS where arm64/
-# arm64e require PIE (otherwise LLVM emits -no_pie).
-LLVM_PIC=OFF
 
 case "$PLATFORM" in
   bionic)
@@ -94,7 +91,7 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
     CROSS_OBJCOPY="" # cctools ships no objcopy so the Darwin LLVM build needs none
     CROSS_LDFLAGS="--ld-path=$CROSS_LD"
-    SYSTEM_NAME=Darwin; TRIPLE="$HOST"; LLVM_PIC=ON
+    SYSTEM_NAME=Darwin; TRIPLE="$HOST"
     ;;
   windows)
     TC="/opt/llvm-mingw"
@@ -181,7 +178,7 @@ args=(
   -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF
   -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF
   -DLLVM_INSTALL_BINUTILS_SYMLINKS=ON -DLLVM_INSTALL_CCTOOLS_SYMLINKS=ON
-  -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_ENABLE_PIC=$LLVM_PIC
+  -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_ENABLE_PIC=OFF
   -DLLVM_ENABLE_LIBCXX=OFF -DLLVM_ENABLE_LLVM_LIBC=OFF
   -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_RTTI=OFF
   -DLLVM_ENABLE_LTO=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_MODULES=OFF
@@ -220,6 +217,9 @@ args+=(
 if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
   args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
 fi
+# macOS: keep PIC/PIE on (arm64/arm64e require PIE; the global LLVM_ENABLE_PIC=OFF
+# emits -no_pie, which ld64 ignores on arm64). Override it for Darwin only.
+[ "$SYSTEM_NAME" = Darwin ] && args+=(-DLLVM_ENABLE_PIC=ON)
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
