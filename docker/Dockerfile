@@ -1,5 +1,8 @@
 # Prebuilt build image for the llvm-custom cross builds. Bakes the build tools
-# and the zig / llvm-mingw / zig-as-llvm toolchains so CI only pulls (fast).
+# and the zig / llvm-mingw / zig-as-llvm / osxcross toolchains so CI only pulls
+# (fast). zig drives the linux/bsd targets, llvm-mingw the windows targets, and
+# osxcross (which bundles cctools-port: ld64/ar/ranlib/strip/lipo/...) the macOS
+# targets — zig segfaults building macOS LLVM, so darwin uses osxcross instead.
 # The build scripts are NOT copied in — they are bind-mounted from the checkout
 # at run time, so editing scripts/ needs no image rebuild.
 #
@@ -18,6 +21,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates aria2 xz-utils unzip git make cmake ninja-build \
         build-essential patchelf file tree python3 zlib1g-dev libzstd-dev \
+        clang lld libssl-dev libxml2-dev liblzma-dev libbz2-dev uuid-dev \
+        cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
 # qemu-user-static + x86_64 libs so the NDK's prebuilt binaries run on non-x86 hosts
@@ -89,13 +94,24 @@ RUN if [ ! -f /opt/.no-zig ]; then \
 # llvm-mingw before zig-as-llvm: mingw ar/cc/c++ must resolve to llvm-mingw,
 # not zig-as-llvm which is only for linux/bsd targets via zig
 
-# macOS SDK -> /opt/macos-sdk. Arch-independent (headers + .tbd stubs), so no
-# host gating. build.sh points -isysroot here for darwin targets; if the SDK is
-# ever absent it falls back to skipping dsymutil.
+# osxcross -> /opt/osxcross: the macOS cross toolchain for darwin targets,
+# replacing zig (which segfaults building macOS LLVM). osxcross compiles
+# cctools-port (ld64/ar/ranlib/strip/lipo/install_name_tool/...) and clang
+# wrappers, and bakes the macOS SDK into /opt/osxcross/SDK. build.sh points the
+# darwin CC/CXX/AR/RANLIB/STRIP/LD at the arch-prefixed wrappers in
+# /opt/osxcross/bin (e.g. arm64-apple-darwin24-clang, x86_64-apple-darwin24-ar).
+# Arch-independent toolchain, so no host gating. Only x86_64 + arm64 wrappers are
+# built (the only macOS arches we target) to keep the image build quick.
+ARG OSXCROSS_REF=master
 RUN aria2c --max-tries=20 --retry-wait=2 --connect-timeout=15 --dir=/tmp -o macos-sdk.tar.xz \
         "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
-    && tar -xJf /tmp/macos-sdk.tar.xz -C /opt \
-    && rm /tmp/macos-sdk.tar.xz \
-    && mv /opt/MacOSX*.sdk /opt/macos-sdk
+    && git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
+    && git -C /tmp/osxcross checkout "$OSXCROSS_REF" \
+    && cp /tmp/macos-sdk.tar.xz /tmp/osxcross/tarballs/ \
+    && cd /tmp/osxcross \
+    && UNATTENDED=1 ENABLE_ARCHS="x86_64 arm64" OSX_VERSION_MIN=11.0 \
+       TARGET_DIR=/opt/osxcross ./build.sh \
+    && cd / \
+    && rm -rf /tmp/osxcross /tmp/macos-sdk.tar.xz
 
 WORKDIR /work

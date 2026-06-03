@@ -1,0 +1,37 @@
+name: Build LLVM (macOS)
+run-name: Build LLVM for r${{inputs.version}}${{inputs.revision}} ${{inputs.projects}}
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "NDK Release version:"
+        default: "30"
+        required: true
+      revision:
+        description: "NDK Release revision:"
+        required: false
+        type: string
+      projects:
+        description: "Projects to build:"
+        # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
+        default: "bolt;clang;clang-tools-extra;lld"
+        required: true
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-llvm.yml
+    secrets: inherit
+    with:
+      platform: macos
+      version: ${{ inputs.version }}
+      revision: ${{ inputs.revision }}
+      projects: ${{ inputs.projects }}
+      # Darwin targets are built with osxcross (cctools-port + clang wrappers),
+      # not zig, which segfaults building macOS LLVM. Only arm64 + x86_64
+      # wrappers are baked into the build image.
+      targets: >-
+        ["aarch64-macos-none", "x86_64-macos-none"]

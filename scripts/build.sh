@@ -2,12 +2,13 @@
 # Build LLVM/clang for one cross target. Driven entirely by env vars so it runs
 # identically in CI and in `docker run`.
 #
-#   PLATFORM    bionic | linux | bsd | windows
+#   PLATFORM    bionic | linux | bsd | windows | macos
 #   TARGET      target triple, e.g.
 #                 aarch64-linux-android        (bionic)
 #                 x86_64-linux-gnu / -musl     (linux)
 #                 aarch64-freebsd-none         (bsd)
 #                 x86_64-w64-mingw32           (windows)
+#                 aarch64-macos-none           (macos)
 #   PROJECTS    LLVM_ENABLE_PROJECTS (default: bolt;clang;clang-tools-extra;lld)
 #   ROOTDIR     work dir (default: cwd)
 #   ANDROID_API bionic API level (default: 25, riscv64 forced to 35)
@@ -66,8 +67,30 @@ case "$PLATFORM" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
       openbsd) SYSTEM_NAME=OpenBSD ;;
-      macos|maccatalyst) SYSTEM_NAME=Darwin ;;
     esac
+    ;;
+  macos)
+    # Darwin targets use osxcross (cctools-port + clang wrappers), not zig:
+    # zig segfaults building macOS LLVM. The wrappers carry the macOS SDK
+    # sysroot themselves, so no -isysroot/-iframework juggling is needed here.
+    TC="/opt/osxcross"
+    export PATH="$TC/bin:$PATH"   # so the wrappers' xcrun/helper shims resolve
+    case "$TARGET" in
+      aarch64-*|arm64-*) ARCH=arm64 ;;
+      x86_64-*)          ARCH=x86_64 ;;
+      *) echo "Unsupported macOS arch in TARGET='$TARGET'" >&2; exit 1 ;;
+    esac
+    # osxcross names its wrappers with the SDK's darwin version (e.g.
+    # arm64-apple-darwin24.5-clang); resolve that prefix by globbing rather
+    # than pinning a version that drifts with the baked SDK.
+    CCWRAP="$(ls "$TC/bin/${ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
+    [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $ARCH not found in $TC/bin" >&2; exit 1; }
+    HOST="$(basename "${CCWRAP%-clang}")"
+    CROSS_CC="$TC/bin/${HOST}-clang"; CROSS_CXX="$TC/bin/${HOST}-clang++"
+    CROSS_AR="$TC/bin/${HOST}-ar"; CROSS_RANLIB="$TC/bin/${HOST}-ranlib"
+    CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
+    CROSS_OBJCOPY=""   # cctools ships no objcopy; the Darwin LLVM build needs none
+    SYSTEM_NAME=Darwin; TRIPLE="$HOST"
     ;;
   windows)
     TC="/opt/llvm-mingw"
@@ -82,21 +105,16 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# macOS targets: dsymutil #includes <CoreFoundation/CoreFoundation.h>
-# and links -framework CoreFoundation, neither of which the zig toolchain ships.
-# Point the compiler + linker at a baked macOS SDK sysroot (osxcross-style
-# MacOSX.sdk, default /opt/macos-sdk) so the frameworks resolve, matching the
-# tools Google ships in the darwin prebuilt.
+# Extra CMake flags shared by the zstd + LLVM Darwin configures: point CMake's
+# Apple support at the osxcross SDK + cctools libtool (CMake creates static libs
+# with libtool, not ar, on Darwin) so it doesn't probe a host Xcode, and pin the
+# arch + deployment target. zig-targeted platforms need none of this.
+DARWIN_CMAKE_ARGS=()
 if [ "$SYSTEM_NAME" = Darwin ]; then
-  MACOS_SDK="${MACOS_SDK:-/opt/macos-sdk}"
-  if [ -d "$MACOS_SDK/System/Library/Frameworks/CoreFoundation.framework" ]; then
-    log "Using macOS SDK sysroot: $MACOS_SDK"
-    CROSS_CFLAGS="$CROSS_CFLAGS -iframework $MACOS_SDK/System/Library/Frameworks"
-    CROSS_LDFLAGS="${CROSS_LDFLAGS:+$CROSS_LDFLAGS} -F ${MACOS_SDK}/System/Library/Frameworks"
-  else
-    log "macOS SDK not found at $MACOS_SDK, is the path correct?"
-    exit 1
-  fi
+  SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
+  [ -n "$SDKROOT" ] && DARWIN_CMAKE_ARGS+=(-DCMAKE_OSX_SYSROOT="$SDKROOT")
+  [ -x "$TC/bin/${HOST}-libtool" ] && DARWIN_CMAKE_ARGS+=(-DCMAKE_LIBTOOL="$TC/bin/${HOST}-libtool")
+  DARWIN_CMAKE_ARGS+=(-DCMAKE_OSX_ARCHITECTURES="$ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
 fi
 
 # --- zlib + zstd (static, bundled) -----------------------------------------
@@ -118,12 +136,13 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
     -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
     -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
-    -DCMAKE_OBJCOPY="$CROSS_OBJCOPY" -DCMAKE_LINKER="$CROSS_LD" \
+    ${CROSS_OBJCOPY:+-DCMAKE_OBJCOPY="$CROSS_OBJCOPY"} -DCMAKE_LINKER="$CROSS_LD" \
     -DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS" \
     -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_CROSSCOMPILING=True -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_PROGRAMS=OFF \
-    -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF -DZSTD_MULTITHREAD_SUPPORT=ON
+    -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF -DZSTD_MULTITHREAD_SUPPORT=ON \
+    "${DARWIN_CMAKE_ARGS[@]}"
   cmake --build "$BUILD_DIR/zstd" --target install -j"$(nproc)"
 fi
 
@@ -138,7 +157,7 @@ args=(
   -DLLVM_DEFAULT_TARGET_TRIPLE="$TRIPLE"
   -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC"
   -DCMAKE_LINKER="$CROSS_LD" -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB"
-  -DCMAKE_OBJCOPY="$CROSS_OBJCOPY" -DCMAKE_STRIP="$CROSS_STRIP"
+  -DCMAKE_STRIP="$CROSS_STRIP"
   -DCMAKE_EXE_LINKER_FLAGS="$CROSS_LDFLAGS"
   -DCMAKE_SHARED_LINKER_FLAGS="$CROSS_LDFLAGS"
   -DLLVM_ENABLE_PROJECTS="$PROJECTS"
@@ -176,6 +195,11 @@ args+=(
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
+# cctools has no objcopy, so CROSS_OBJCOPY is empty for macos; only pass it when
+# the toolchain actually provides one (zig/llvm-mingw/NDK all do).
+[ -n "$CROSS_OBJCOPY" ] && args+=(-DCMAKE_OBJCOPY="$CROSS_OBJCOPY")
+# Darwin (osxcross): SDK sysroot + libtool + arch/deployment target (see above).
+[ ${#DARWIN_CMAKE_ARGS[@]} -gt 0 ] && args+=("${DARWIN_CMAKE_ARGS[@]}")
 # GNU/Linux targets: zig bundles glibc 2.31 headers, which ship sys/rseq.h
 # (added in 2.28) but not the runtime symbols __rseq_offset/__rseq_size
 # (added in 2.35). All three preprocessor guards in BenchmarkRunner.cpp
