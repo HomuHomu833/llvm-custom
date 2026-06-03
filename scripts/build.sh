@@ -176,6 +176,16 @@ args+=(
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
+# GNU/Linux targets: the cross sysroot exposes sys/rseq.h which causes
+# BenchmarkRunner.cpp to reference __rseq_offset/__rseq_size, but those
+# symbols are only present in glibc >= 2.35 and are absent from the
+# aarch64-linux-gnu (and similar) sysroots we link against. Forcing this
+# CMake feature-detection variable to 0 prevents GLIBC_INITS_RSEQ from
+# being defined, removing the rseq code path entirely at compile time.
+# Not needed for musl (no rseq at all).
+if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
+  args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
+fi
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
