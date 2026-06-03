@@ -70,12 +70,10 @@ case "$PLATFORM" in
     esac
     ;;
   macos)
-    # Darwin targets use osxcross (cctools-port + clang wrappers), not zig:
-    # zig segfaults building macOS LLVM. The wrappers carry the macOS SDK
-    # sysroot themselves, so no -isysroot/-iframework juggling is needed here.
+    # Darwin targets use osxcross (cctools-port + clang wrappers).
     TC="/opt/osxcross"
     case "$TARGET" in
-      arm64e-*)          ARCH=arm64e ;;   # distinct PAC ABI, not arm64
+      arm64e-*)          ARCH=arm64e ;;
       aarch64-*|arm64-*) ARCH=arm64 ;;
       x86_64h-*)         ARCH=x86_64h ;;  # Haswell+ x86_64 slice (same ABI)
       x86_64-*)          ARCH=x86_64 ;;
@@ -90,7 +88,7 @@ case "$PLATFORM" in
     CROSS_CC="$TC/bin/${HOST}-clang"; CROSS_CXX="$TC/bin/${HOST}-clang++"
     CROSS_AR="$TC/bin/${HOST}-ar"; CROSS_RANLIB="$TC/bin/${HOST}-ranlib"
     CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
-    CROSS_OBJCOPY=""   # cctools ships no objcopy; the Darwin LLVM build needs none
+    CROSS_OBJCOPY="" # cctools ships no objcopy so the Darwin LLVM build needs none
     SYSTEM_NAME=Darwin; TRIPLE="$HOST"
     ;;
   windows)
