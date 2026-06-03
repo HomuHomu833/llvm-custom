@@ -75,6 +75,7 @@ case "$PLATFORM" in
     # sysroot themselves, so no -isysroot/-iframework juggling is needed here.
     TC="/opt/osxcross"
     case "$TARGET" in
+      arm64e-*)          ARCH=arm64e ;;   # distinct PAC ABI, not arm64
       aarch64-*|arm64-*) ARCH=arm64 ;;
       x86_64-*)          ARCH=x86_64 ;;
       *) echo "Unsupported macOS arch in TARGET='$TARGET'" >&2; exit 1 ;;
