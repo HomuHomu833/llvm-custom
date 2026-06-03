@@ -30,9 +30,5 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
-      # Darwin targets are built with osxcross (cctools-port + clang wrappers),
-      # not zig, which segfaults building macOS LLVM. Apple triples (arm64/
-      # x86_64 + apple + darwin); only arm64 + x86_64 wrappers are baked into
-      # the build image.
       targets: >-
         ["arm64-apple-darwin", "x86_64-apple-darwin"]
