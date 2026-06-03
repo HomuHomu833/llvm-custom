@@ -176,13 +176,15 @@ args+=(
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
-# GNU/Linux targets: the cross sysroot exposes sys/rseq.h which causes
-# BenchmarkRunner.cpp to reference __rseq_offset/__rseq_size, but those
-# symbols are only present in glibc >= 2.35 and are absent from the
-# aarch64-linux-gnu (and similar) sysroots we link against. Forcing this
-# CMake feature-detection variable to 0 prevents GLIBC_INITS_RSEQ from
-# being defined, removing the rseq code path entirely at compile time.
-# Not needed for musl (no rseq at all).
+# GNU/Linux targets: zig bundles glibc 2.31 headers, which ship sys/rseq.h
+# (added in 2.28) but not the runtime symbols __rseq_offset/__rseq_size
+# (added in 2.35). All three preprocessor guards in BenchmarkRunner.cpp
+# therefore pass, GLIBC_INITS_RSEQ gets defined, and the link fails.
+# Bumping to glibc 2.35 would require appending a version suffix to the
+# target triple, which I deliberately avoid. Instead, forcing this CMake
+# feature detection variable to 0 prevents GLIBC_INITS_RSEQ from being
+# defined, removing the rseq code path entirely at compile time.
+# no needed for musl (no rseq at all).
 if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
   args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
 fi
