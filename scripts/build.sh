@@ -90,7 +90,7 @@ case "$PLATFORM" in
     CROSS_AR="$TC/bin/${HOST}-ar"; CROSS_RANLIB="$TC/bin/${HOST}-ranlib"
     CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
     CROSS_OBJCOPY="" # cctools ships no objcopy so the Darwin LLVM build needs none
-    CROSS_LDFLAGS="-fuse-ld=$CROSS_LD"
+    CROSS_LDFLAGS="--ld-path=$CROSS_LD"
     SYSTEM_NAME=Darwin; TRIPLE="$HOST"
     ;;
   windows)
