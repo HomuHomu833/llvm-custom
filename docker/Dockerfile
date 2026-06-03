@@ -109,7 +109,7 @@ RUN git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
         --dir=/tmp/osxcross/tarballs -o "MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
         "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
     && cd /tmp/osxcross \
-    && UNATTENDED=1 ENABLE_ARCHS="x86_64 arm64 arm64e" OSX_VERSION_MIN=11.0 \
+    && UNATTENDED=1 ENABLE_ARCHS="x86_64 x86_64h arm64 arm64e" OSX_VERSION_MIN=11.0 \
        TARGET_DIR=/opt/osxcross ./build.sh \
     && cd / \
     && rm -rf /tmp/osxcross

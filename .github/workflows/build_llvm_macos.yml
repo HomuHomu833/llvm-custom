@@ -31,4 +31,5 @@ jobs:
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
       targets: >-
-        ["arm64-apple-darwin", "arm64e-apple-darwin", "x86_64-apple-darwin"]
+        ["arm64-apple-darwin", "arm64e-apple-darwin",
+         "x86_64-apple-darwin", "x86_64h-apple-darwin"]

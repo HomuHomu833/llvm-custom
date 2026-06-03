@@ -77,6 +77,7 @@ case "$PLATFORM" in
     case "$TARGET" in
       arm64e-*)          ARCH=arm64e ;;   # distinct PAC ABI, not arm64
       aarch64-*|arm64-*) ARCH=arm64 ;;
+      x86_64h-*)         ARCH=x86_64h ;;  # Haswell+ x86_64 slice (same ABI)
       x86_64-*)          ARCH=x86_64 ;;
       *) echo "Unsupported macOS arch in TARGET='$TARGET'" >&2; exit 1 ;;
     esac
