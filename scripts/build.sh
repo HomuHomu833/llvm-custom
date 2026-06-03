@@ -217,9 +217,6 @@ args+=(
 if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
   args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
 fi
-# macOS: keep PIC/PIE on (arm64/arm64e require PIE; the global LLVM_ENABLE_PIC=OFF
-# emits -no_pie, which ld64 ignores on arm64). Override it for Darwin only.
-[ "$SYSTEM_NAME" = Darwin ] && args+=(-DLLVM_ENABLE_PIC=ON)
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
