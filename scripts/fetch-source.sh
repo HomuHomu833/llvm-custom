@@ -5,7 +5,7 @@
 #
 #   NDK_VERSION   required (e.g. 26)
 #   NDK_REVISION  optional (e.g. d)
-#   PLATFORM      optional (bionic|linux|bsd|windows); picks the default patch set
+#   PLATFORM      optional (bionic|linux|bsd|windows|macos); picks the default patch set
 #                 and the bionic-only source fixups
 #   PATCHSET      optional extra patch dir under patches/ (e.g. musl); overrides
 #                 the PLATFORM-based default
@@ -16,8 +16,9 @@ ROOTDIR="${ROOTDIR:-$PWD}"
 : "${NDK_VERSION:?set NDK_VERSION}"
 NDK_REVISION="${NDK_REVISION:-}"
 # The musl patch set carries source fixes every zig-built target needs (linux +
-# bsd); bionic (NDK clang) and windows (llvm-mingw) don't use it. This mirrors
-# upstream, which applies patches/musl/llvm in both the musl and bsd workflows.
+# bsd); bionic (NDK clang), windows (llvm-mingw) and macos (osxcross) don't use
+# it. This mirrors upstream, which applies patches/musl/llvm in the musl + bsd
+# workflows.
 PATCHSET="${PATCHSET:-}"
 if [ -z "$PATCHSET" ]; then
   case "${PLATFORM:-}" in

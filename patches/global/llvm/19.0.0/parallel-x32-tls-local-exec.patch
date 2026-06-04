@@ -1,0 +1,38 @@
+diff --git a/llvm/include/llvm/Support/Parallel.h b/llvm/include/llvm/Support/Parallel.h
+--- a/llvm/include/llvm/Support/Parallel.h
++++ b/llvm/include/llvm/Support/Parallel.h
+@@ -44,7 +44,17 @@
+ unsigned getThreadIndex();
+ #else
+ // Don't access this directly, use the getThreadIndex wrapper.
++#if defined(__x86_64__) && defined(__ILP32__)
++// x32: force local-exec TLS so getThreadIndex() materializes threadIndex as a
++// direct %fs TPOFF32 (R_X86_64_TPOFF32) rather than an initial-exec GOTTPOFF.
++// lld's x86-64 GOTTPOFF->LE relaxation only recognizes the 64-bit movq/addq
++// encodings, so the 32-bit movl/addl form x32 emits makes a bootstrap link
++// fail: "R_X86_64_GOTTPOFF must be used in MOVQ or ADDQ instructions only".
++extern thread_local unsigned threadIndex
++    __attribute__((tls_model("local-exec")));
++#else
+ extern thread_local unsigned threadIndex;
++#endif
+ 
+ inline unsigned getThreadIndex() { GET_THREAD_INDEX_IMPL; }
+ #endif
+diff --git a/llvm/lib/Support/Parallel.cpp b/llvm/lib/Support/Parallel.cpp
+--- a/llvm/lib/Support/Parallel.cpp
++++ b/llvm/lib/Support/Parallel.cpp
+@@ -27,8 +27,13 @@
+ 
+ unsigned getThreadIndex() { GET_THREAD_INDEX_IMPL; }
+ #else
++#if defined(__x86_64__) && defined(__ILP32__)
++thread_local unsigned threadIndex __attribute__((tls_model("local-exec"))) =
++    UINT_MAX;
++#else
+ thread_local unsigned threadIndex = UINT_MAX;
+ #endif
++#endif
+ 
+ namespace detail {
+ 

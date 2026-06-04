@@ -30,7 +30,7 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
-      # powerpc64le-linux-gnu, x86_64-linux-gnux32, x86_64-linux-muslx32
+      # powerpc64le-linux-gnu, x86_64-linux-gnux32
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
          "aarch64_be-linux-musl", "arm-linux-gnueabi", "arm-linux-gnueabihf",
@@ -52,4 +52,5 @@ jobs:
          "riscv64-linux-musl", "riscv64-linux-gnu", "s390x-linux-gnu",
          "s390x-linux-musl", "thumb-linux-musleabi", "thumb-linux-musleabihf",
          "thumbeb-linux-musleabi", "thumbeb-linux-musleabihf",
-         "x86-linux-gnu", "x86-linux-musl", "x86_64-linux-musl", "x86_64-linux-gnu"]
+         "x86-linux-gnu", "x86-linux-musl", "x86_64-linux-musl",
+         "x86_64-linux-muslx32", "x86_64-linux-gnu"]
