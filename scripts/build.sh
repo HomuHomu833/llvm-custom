@@ -32,6 +32,18 @@ OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# Download with retries: re-run aria2c on any failure so transient GitHub 501/504
+# (and the like) recover. Doesn't rely on aria2's --retry-on-unknown, which older
+# aria2 builds don't have. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.
+fetch() {
+  local i=0
+  until aria2c --console-log-level=error --check-certificate=false \
+               --max-tries=5 --retry-wait=2 --connect-timeout=15 "$@"; do
+    i=$((i + 1)); [ "$i" -ge 5 ] && { echo "fetch: giving up after $i attempts" >&2; return 1; }
+    echo "fetch: aria2c failed, retry $i/5 in 2s..." >&2; sleep 2
+  done
+}
+
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
 CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
@@ -125,7 +137,7 @@ fi
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
-  aria2c --max-tries=20 --retry-wait=2 --retry-on-unknown=true --connect-timeout=15 --dir=/tmp -o zlib.tar.xz \
+  fetch --dir=/tmp -o zlib.tar.xz \
     https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
   && xz -d < /tmp/zlib.tar.xz | tar -x -C "$ROOTDIR" \
   && rm /tmp/zlib.tar.xz
@@ -133,7 +145,7 @@ if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
-  aria2c --max-tries=20 --retry-wait=2 --retry-on-unknown=true --connect-timeout=15 --dir=/tmp -o zstd.tar.gz \
+  fetch --dir=/tmp -o zstd.tar.gz \
     https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
   && gzip -d < /tmp/zstd.tar.gz | tar -x -C "$ROOTDIR" \
   && rm /tmp/zstd.tar.gz
