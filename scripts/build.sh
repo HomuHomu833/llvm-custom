@@ -11,7 +11,7 @@
 #                 arm64-apple-darwin           (macos)
 #   PROJECTS    LLVM_ENABLE_PROJECTS (default: bolt;clang;clang-tools-extra;lld)
 #   ROOTDIR     work dir (default: cwd)
-#   ANDROID_API bionic API level (default: 25, riscv64 forced to 35)
+#   ANDROID_API bionic API level (default: 25, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
 #
 # Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION.
@@ -43,12 +43,12 @@ LLVM_STATIC=OFF
 
 case "$PLATFORM" in
   bionic)
-    API="${ANDROID_API:-25}"; [ "$TARGET" = riscv64-linux-android ] && API=35
+    API="${ANDROID_API:-25}"; [ "$TARGET" = riscv64-linux-android ] && [ "$API" -lt 35 ] && API=35
     TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
     CROSS_CC="$TC/bin/${TARGET}${API}-clang"; CROSS_CXX="${CROSS_CC}++"
     CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
-    TRIPLE="${TARGET}${API}"; LLVM_STATIC=ON
+    TRIPLE="${TARGET}${API}"; CROSS_LDFLAGS="-static-libstdc++ -static-libgcc"
     ;;
   linux)
     TC="/opt/zig-as-llvm"
