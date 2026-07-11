@@ -16,9 +16,7 @@ ROOTDIR="${ROOTDIR:-$PWD}"
 : "${NDK_VERSION:?set NDK_VERSION}"
 NDK_REVISION="${NDK_REVISION:-}"
 # The musl patch set carries source fixes every zig-built target needs (linux +
-# bsd); bionic (NDK clang), windows (llvm-mingw) and macos (osxcross) don't use
-# it. This mirrors upstream, which applies patches/musl/llvm in the musl + bsd
-# workflows.
+# bsd); bionic/windows/macos don't use it.
 PATCHSET="${PATCHSET:-}"
 if [ -z "$PATCHSET" ]; then
   case "${PLATFORM:-}" in
@@ -38,9 +36,8 @@ SRC="${SRC:-$ROOTDIR/llvm-project}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# Download with retries: re-run aria2c on any failure so transient GitHub 501/504
-# (and the like) recover. Doesn't rely on aria2's --retry-on-unknown, which older
-# aria2 builds don't have. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.
+# Download with retries: re-run aria2c on any failure so transient GitHub errors
+# recover. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.
 fetch() {
   local i=0
   until aria2c --console-log-level=error --check-certificate=false \
@@ -75,11 +72,8 @@ if [ ! -d "$SRC" ]; then
   rm -f "$SRC.tar.gz"
 fi
 
-# Make $SRC its own git repo. In CI the repo checkout is the mount root (/work)
-# and $SRC sits *inside* it, so `git apply` would otherwise discover /work/.git,
-# resolve the patch paths against that outer root, and silently no-op with exit
-# 0 - patches look applied but the tree is untouched (and strict mode never
-# aborts). With a .git here, $SRC is the nearest repo and patches apply for real.
+# Make $SRC its own git repo so `git apply` resolves against it, not an outer
+# /work/.git (which would silently no-op the patches).
 git init -q "$SRC"
 
 log "Applying llvm_android patches"
@@ -107,8 +101,8 @@ apply_set() {
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_VERSION" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_VERSION" strict
 
-# bionic: llvm-rtdyld's x86_64/ELF/linux fast path doesn't compile for Android;
-# gate it on !__ANDROID__ so the bionic cross build succeeds (mirrors upstream).
+# bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
+# doesn't compile for Android).
 if [ "${PLATFORM:-}" = bionic ]; then
   log "bionic: guarding llvm-rtdyld x86_64 ELF block on !__ANDROID__"
   sed -i '/^#if defined(__x86_64__) && defined(__ELF__) && defined(__linux__)$/ {

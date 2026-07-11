@@ -32,9 +32,8 @@ OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# Download with retries: re-run aria2c on any failure so transient GitHub 501/504
-# (and the like) recover. Doesn't rely on aria2's --retry-on-unknown, which older
-# aria2 builds don't have. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.
+# Download with retries: re-run aria2c on any failure so transient GitHub errors
+# recover. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.
 fetch() {
   local i=0
   until aria2c --console-log-level=error --check-certificate=false \
@@ -47,10 +46,7 @@ fetch() {
 # --- toolchain + platform-specific flags -----------------------------------
 export ZIG_TARGET="$TARGET"
 CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
-# LLVM_BUILD_STATIC mirrors upstream per platform: ON for the fully-static targets
-# (bionic/musl), OFF for the dynamically-linked bsd/windows builds. Windows only
-# statically links the mingw C++/unwind/pthread runtime (see the windows case),
-# not the whole binary, so pass plugins can still resolve symbols dynamically.
+# LLVM_BUILD_STATIC: ON for fully-static targets (bionic/musl), OFF otherwise.
 LLVM_STATIC=OFF
 
 case "$PLATFORM" in
@@ -92,16 +88,14 @@ case "$PLATFORM" in
       x86_64-*)          ARCH=x86_64 ;;
       *) echo "Unsupported macOS arch in TARGET='$TARGET'" >&2; exit 1 ;;
     esac
-    # osxcross names its wrappers with the SDK's darwin version (e.g.
-    # arm64-apple-darwin24.5-clang); resolve that prefix by globbing rather
-    # than pinning a version that drifts with the baked SDK.
+    # wrapper names carry the SDK's darwin version; glob it rather than pin.
     CCWRAP="$(ls "$TC/bin/${ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
     [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $ARCH not found in $TC/bin" >&2; exit 1; }
     HOST="$(basename "${CCWRAP%-clang}")"
     CROSS_CC="$TC/bin/${HOST}-clang"; CROSS_CXX="$TC/bin/${HOST}-clang++"
     CROSS_AR="$TC/bin/${HOST}-ar"; CROSS_RANLIB="$TC/bin/${HOST}-ranlib"
     CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
-    CROSS_OBJCOPY="" # cctools ships no objcopy so the Darwin LLVM build needs none
+    CROSS_OBJCOPY="" # cctools ships no objcopy; unused here
     CROSS_LDFLAGS="--ld-path=$CROSS_LD"
     SYSTEM_NAME=Darwin; TRIPLE="$HOST"
     ;;
@@ -118,12 +112,8 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# Extra CMake flags applied to both the zstd + LLVM configures: anything passed
-# in via the EXTRA_CMAKE_FLAGS env var, plus platform-specific additions. The
-# Darwin (osxcross) block points CMake's Apple support at the osxcross SDK +
-# cctools libtool (CMake builds static libs with libtool, not ar, on Darwin) so
-# it doesn't probe a host Xcode, and pins the arch + deployment target;
-# zig-targeted platforms need none of this.
+# Extra cmake flags for zstd + LLVM: env-supplied plus Darwin SDK/libtool/arch
+# pins so CMake doesn't probe a host Xcode. Other platforms need none.
 # shellcheck disable=SC2206  # intentional word-splitting of the env var
 EXTRA_CMAKE_FLAGS=(${EXTRA_CMAKE_FLAGS:-})
 if [ "$SYSTEM_NAME" = Darwin ]; then
@@ -201,31 +191,19 @@ args=(
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
 )
-# Pin zlib + zstd to our bundled static builds so find_package() can't resolve
-# them against the host (the build image ships zlib1g-dev/libzstd-dev) or a
-# toolchain sysroot. Otherwise an incompatible host .so slips onto the link line,
-# lld drops it as incompatible, and zlib/zstd symbols (compressBound, compress2,
-# uncompress, ...) end up undefined. Upstream only overrides this for bionic; we
-# do it for every cross target since the bundled static libs always exist here.
+# Pin zlib + zstd to our bundled static builds so find_package() doesn't grab an
+# incompatible host .so (which lld drops, leaving zlib/zstd symbols undefined).
 args+=(
   -DZLIB_LIBRARY="$INSTALL_DIR/lib/libz.a" -DZLIB_INCLUDE_DIR="$INSTALL_DIR/include"
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
-# cctools has no objcopy, so CROSS_OBJCOPY is empty for macos; only pass it when
-# the toolchain actually provides one (zig/llvm-mingw/NDK all do).
+# pass CMAKE_OBJCOPY only when the toolchain has one (empty on macos).
 [ -n "$CROSS_OBJCOPY" ] && args+=(-DCMAKE_OBJCOPY="$CROSS_OBJCOPY")
-# Extra cmake flags (EXTRA_CMAKE_FLAGS env var + Darwin osxcross settings; see above).
 [ ${#EXTRA_CMAKE_FLAGS[@]} -gt 0 ] && args+=("${EXTRA_CMAKE_FLAGS[@]}")
-# GNU/Linux targets: zig bundles glibc 2.31 headers, which ship sys/rseq.h
-# (added in 2.28) but not the runtime symbols __rseq_offset/__rseq_size
-# (added in 2.35). All three preprocessor guards in BenchmarkRunner.cpp
-# therefore pass, GLIBC_INITS_RSEQ gets defined, and the link fails.
-# Bumping to glibc 2.35 would require appending a version suffix to the
-# target triple, which I deliberately avoid. Instead, forcing this CMake
-# feature detection variable to 0 prevents GLIBC_INITS_RSEQ from being
-# defined, removing the rseq code path entirely at compile time.
-# no needed for musl (no rseq at all).
+# GNU/Linux: zig's glibc 2.31 headers ship sys/rseq.h but not __rseq_offset/
+# __rseq_size (2.35), so GLIBC_INITS_RSEQ is defined and the link fails. Force
+# the detection var off to drop the rseq path. (musl has no rseq.)
 if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
   args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
 fi
@@ -235,8 +213,8 @@ cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install
 
-# strip installed binaries one at a time: the zig-as-llvm strip wrapper only
-# handles a single file argument, and real llvm-strip is fine either way.
+# strip installed binaries one at a time (the zig-as-llvm strip wrapper takes
+# only one file arg).
 find "$OUT/bin" -type f ! -lname '*' | while IFS= read -r f; do
   "$CROSS_STRIP" "$f" 2>/dev/null || true
 done

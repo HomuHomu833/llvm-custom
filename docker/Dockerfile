@@ -1,10 +1,8 @@
-# Prebuilt build image for the llvm-custom cross builds. Bakes the build tools
-# and the zig / llvm-mingw / zig-as-llvm / osxcross toolchains so CI only pulls
-# (fast). zig drives the linux/bsd targets, llvm-mingw the windows targets, and
-# osxcross (which bundles cctools-port: ld64/ar/ranlib/strip/lipo/...) the macOS
-# targets — zig segfaults building macOS LLVM, so darwin uses osxcross instead.
-# The build scripts are NOT copied in — they are bind-mounted from the checkout
-# at run time, so editing scripts/ needs no image rebuild.
+# Prebuilt build image for llvm-custom. Bakes the build tools and the
+# zig / llvm-mingw / zig-as-llvm / osxcross toolchains so CI only pulls.
+# zig: linux/bsd targets; llvm-mingw: windows; osxcross (cctools-port): macOS
+# (zig segfaults on macOS LLVM).
+# Build scripts are bind-mounted from the checkout at run time, not copied in.
 #
 #   docker run --rm -v "$PWD:/work" -w /work \
 #     -e PLATFORM=linux -e TARGET=x86_64-linux-gnu -e NDK_VERSION=30 \
@@ -25,10 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
-# fetch: download with retries — re-runs aria2c on any failure so transient GitHub
-# 501/504 (and the like) recover, without relying on aria2's --retry-on-unknown
-# (older aria2 builds lack it). The build scripts define an identical shell helper
-# for standalone (non-container) runs.
+# fetch: download with retries, re-running aria2c on any failure so transient
+# GitHub errors recover. The build scripts define an identical helper for
+# standalone runs.
 RUN printf '%s\n' '#!/bin/sh' \
     'i=0; until aria2c --console-log-level=error --check-certificate=false --max-tries=5 --retry-wait=2 --connect-timeout=15 "$@"; do' \
     '  i=$((i+1)); [ "$i" -ge 5 ] && { echo "fetch: giving up after $i attempts" >&2; exit 1; }' \
@@ -79,12 +76,9 @@ RUN arch="$(uname -m)"; \
         && chmod -R a+w /opt/zig/lib; \
     fi   # build.sh overlays patches/musl/zig here at run time (non-root)
 
-# zig-as-llvm's cc/c++/ar/strip/... wrappers exec a bare `zig`, and build.sh
-# overlays the musl libc fixes next to the zig binary ($(dirname $(command -v zig))).
-# Both need zig on PATH. Only zig is added -- NOT the zig-as-llvm / llvm-mingw bin
-# dirs: build.sh invokes those by absolute path, and keeping them off PATH leaves
-# `cc`/`c++` resolving to the host gcc that LLVM's cross build uses to bootstrap
-# its native tablegen.
+# Only zig on PATH: its wrappers exec a bare `zig` and build.sh overlays musl
+# fixes next to it. zig-as-llvm / llvm-mingw stay off PATH (called by absolute
+# path) so `cc`/`c++` resolve to the host gcc LLVM uses to bootstrap tablegen.
 ENV QEMU_LD_PREFIX=/usr/x86_64-linux-gnu
 
 ENV PATH="/opt/zig:${PATH}"
@@ -108,14 +102,10 @@ RUN if [ ! -f /opt/.no-zig ]; then \
 # llvm-mingw before zig-as-llvm: mingw ar/cc/c++ must resolve to llvm-mingw,
 # not zig-as-llvm which is only for linux/bsd targets via zig
 
-# osxcross -> /opt/osxcross: the macOS cross toolchain for darwin targets,
-# replacing zig (which segfaults building macOS LLVM). osxcross compiles
-# cctools-port (ld64/ar/ranlib/strip/lipo/install_name_tool/...) and clang
-# wrappers, and bakes the macOS SDK into /opt/osxcross/SDK. build.sh points the
-# darwin CC/CXX/AR/RANLIB/STRIP/LD at the arch-prefixed wrappers in
-# /opt/osxcross/bin (e.g. arm64-apple-darwin24-clang, x86_64-apple-darwin24-ar).
-# Arch-independent toolchain, so no host gating. Only x86_64 + arm64 wrappers are
-# built (the only macOS arches we target) to keep the image build quick.
+# osxcross -> /opt/osxcross: macOS cross toolchain (cctools-port + clang
+# wrappers) with the SDK baked into /opt/osxcross/SDK. build.sh points the darwin
+# tools at the arch-prefixed wrappers in /opt/osxcross/bin. Only the target
+# arches (x86_64/x86_64h/arm64/arm64e) are built to keep it quick.
 ARG OSXCROSS_REF=master
 RUN git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
     && git -C /tmp/osxcross checkout "$OSXCROSS_REF" \
