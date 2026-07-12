@@ -56,7 +56,8 @@ case "$PLATFORM" in
     CROSS_CC="$TC/bin/${TARGET}${API}-clang"; CROSS_CXX="${CROSS_CC}++"
     CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
-    TRIPLE="${TARGET}${API}"; CROSS_LDFLAGS="-static-libstdc++ -static-libgcc"
+    TRIPLE="${TARGET}${API}"
+    CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
     ;;
   linux)
     TC="/opt/zig-as-llvm"
