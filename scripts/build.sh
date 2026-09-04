@@ -19,13 +19,6 @@ set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
 : "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
-
-# zig target for the compiler wrappers. powerpc64le-linux-gnu needs an explicit
-# glibc >= 2.32: clang gives it IEEE-128 long double, so zig's libc++ calls
-# glibc's __snprintfieee128 / __fprintfieee128 / __vfprintfieee128, added in
-# 2.32. Without a version zig picks an older glibc and the link fails.
-ZIG_TRIPLE="$TARGET"
-if [ "$TARGET" = powerpc64le-linux-gnu ]; then ZIG_TRIPLE="powerpc64le-linux-gnu.2.32"; fi
 PROJECTS="${PROJECTS:-bolt;clang;clang-tools-extra;lld}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PATCHES_DIR="${PATCHES_DIR:-$SCRIPT_DIR/../patches}"
@@ -51,7 +44,10 @@ fetch() {
 }
 
 # --- toolchain + platform-specific flags -----------------------------------
-export ZIG_TARGET="$ZIG_TRIPLE"
+export ZIG_TARGET="$TARGET"
+# ppc64le glibc: clang's IEEE-128 long double makes libc++ call
+# glibc's __*ieee128 printf entries, which arrived in 2.32.
+case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
 CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
 # LLVM_BUILD_STATIC: ON for fully-static targets (bionic/musl), OFF otherwise.
 LLVM_STATIC=OFF
