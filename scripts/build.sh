@@ -143,11 +143,24 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
     https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
   && gzip -d < /tmp/zstd.tar.gz | tar -x -C "$ROOTDIR" \
   && rm /tmp/zstd.tar.gz
+  # arm64ec carries x86_64's macros so datatype layouts match x64, but zstd reads
+  # them as "has x86 instructions": _M_AMD64 pulls <emmintrin.h> (ZSTD_NO_INTRINSICS
+  # is zstd's own opt-out), and __x86_64__/_M_X64 gate cpuid asm, .p2align hints and
+  # BMI2. Each site has a portable #else.
+  ZSTD_EXTRA_CFLAGS=""
+  case "$TARGET" in
+    arm64ec-*)
+      ZSTD_EXTRA_CFLAGS=" -DZSTD_NO_INTRINSICS"
+      grep -rl 'defined(__x86_64__)\|defined(_M_X64)' "$ROOTDIR/zstd-1.5.6/lib" 2>/dev/null | while read -r _f; do
+        sed -i -e 's@defined(__x86_64__)@(defined(__x86_64__) \&\& !defined(__arm64ec__))@g' \
+               -e 's@defined(_M_X64)@(defined(_M_X64) \&\& !defined(_M_ARM64EC))@g' "$_f"
+      done ;;
+  esac
   cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
     -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
     -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
     ${CROSS_OBJCOPY:+-DCMAKE_OBJCOPY="$CROSS_OBJCOPY"} -DCMAKE_LINKER="$CROSS_LD" \
-    -DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS" \
+    -DCMAKE_C_FLAGS="$CROSS_CFLAGS$ZSTD_EXTRA_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS$ZSTD_EXTRA_CFLAGS" \
     -DCMAKE_EXE_LINKER_FLAGS="$CROSS_LDFLAGS" -DCMAKE_SHARED_LINKER_FLAGS="$CROSS_LDFLAGS" \
     -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_CROSSCOMPILING=True -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME" \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
