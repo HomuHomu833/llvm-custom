@@ -110,12 +110,6 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
     SYSTEM_NAME=Windows
-    # arm64ec presents as x64, so clang emits the x86-mingw stack probe
-    # ___chkstk_ms. llvm-mingw ships no compiler-rt for EC, so no EC-mangled
-    # definition exists and lli.exe fails to link. Drop the probes.
-    case "$TARGET" in
-      arm64ec-*) CROSS_CFLAGS="$CROSS_CFLAGS -mno-stack-arg-probe" ;;
-    esac
     CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;

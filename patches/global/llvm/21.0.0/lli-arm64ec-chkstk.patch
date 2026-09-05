@@ -1,0 +1,13 @@
+diff --git a/llvm/tools/lli/lli.cpp b/llvm/tools/lli/lli.cpp
+index ed1a80d..fb8eae1 100644
+--- a/llvm/tools/lli/lli.cpp
++++ b/llvm/tools/lli/lli.cpp
+@@ -1295,7 +1295,7 @@ extern "C" void _alloca(void);
+ static __attribute__((used)) void (*const ref_func)(void) = _alloca;
+ static __attribute__((section(".drectve"), used)) const char export_chkstk[] =
+     "-export:_alloca";
+-#elif defined(__x86_64__)
++#elif defined(__x86_64__) && !defined(__arm64ec__)
+ extern "C" void ___chkstk_ms(void);
+ static __attribute__((used)) void (*const ref_func)(void) = ___chkstk_ms;
+ static __attribute__((section(".drectve"), used)) const char export_chkstk[] =
