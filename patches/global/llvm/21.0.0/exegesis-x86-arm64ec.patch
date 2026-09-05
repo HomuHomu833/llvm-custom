@@ -1,0 +1,67 @@
+diff --git a/llvm/tools/llvm-exegesis/lib/X86/Target.cpp b/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
+index 1659cfb..c8ea038 100644
+--- a/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
++++ b/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
+@@ -39,7 +39,7 @@
+ #endif
+ 
+ #ifdef __linux__
+-#ifdef __x86_64__
++#if defined(__x86_64__) && !defined(__arm64ec__)
+ #include <asm/prctl.h>
+ #endif // __x86_64__
+ #include <sys/mman.h>
+@@ -657,7 +657,7 @@ public:
+ #if defined(_MSC_VER) && defined(_M_X64)
+     _fxsave64(FPState);
+     Eflags = __readeflags();
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && (defined(__x86_64__) && !defined(__arm64ec__))
+     __builtin_ia32_fxsave64(FPState);
+     Eflags = __builtin_ia32_readeflags_u64();
+ #else
+@@ -672,7 +672,7 @@ public:
+     _clearfp();
+     _fxrstor64(FPState);
+     __writeeflags(Eflags);
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && (defined(__x86_64__) && !defined(__arm64ec__))
+     asm volatile("fwait");
+     __builtin_ia32_fxrstor64(FPState);
+     __builtin_ia32_writeeflags_u64(Eflags);
+@@ -682,7 +682,7 @@ public:
+   }
+ 
+ private:
+-#if defined(__x86_64__) || defined(_M_X64)
++#if (defined(__x86_64__) && !defined(__arm64ec__)) || defined(_M_X64)
+   alignas(16) char FPState[512];
+   uint64_t Eflags;
+ #endif
+@@ -824,7 +824,7 @@ private:
+       // For now, only do the check if we see an Intel machine because
+       // the counter uses some intel-specific magic and it could
+       // be confuse and think an AMD machine actually has LBR support.
+-#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) ||            \
++#if defined(__i386__) || defined(_M_IX86) || (defined(__x86_64__) && !defined(__arm64ec__)) ||            \
+     defined(_M_X64)
+     using namespace sys::detail::x86;
+ 
+@@ -990,7 +990,7 @@ static void restoreSyscallRegisters(std::vector<MCInst> &GeneratedCode,
+ 
+ static std::vector<MCInst> loadImmediateSegmentRegister(MCRegister Reg,
+                                                         const APInt &Value) {
+-#if defined(__x86_64__) && defined(__linux__)
++#if (defined(__x86_64__) && !defined(__arm64ec__)) && defined(__linux__)
+   assert(Value.getBitWidth() <= 64 && "Value must fit in the register.");
+   std::vector<MCInst> loadSegmentRegisterCode;
+   // Preserve the syscall registers here as we don't
+@@ -1017,7 +1017,7 @@ static std::vector<MCInst> loadImmediateSegmentRegister(MCRegister Reg,
+ #else
+   llvm_unreachable("Loading immediate segment registers is only supported with "
+                    "x86-64 llvm-exegesis");
+-#endif // defined(__x86_64__) && defined(__linux__)
++#endif // (defined(__x86_64__) && !defined(__arm64ec__)) && defined(__linux__)
+ }
+ 
+ std::vector<MCInst> ExegesisX86Target::setRegTo(const MCSubtargetInfo &STI,
