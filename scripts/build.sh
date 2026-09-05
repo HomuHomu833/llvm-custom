@@ -217,6 +217,17 @@ args+=(
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CFLAGS")
 # pass CMAKE_OBJCOPY only when the toolchain has one (empty on macos).
 [ -n "$CROSS_OBJCOPY" ] && args+=(-DCMAKE_OBJCOPY="$CROSS_OBJCOPY")
+# arm64ec: llvm-mingw skips compiler-rt for EC and builds the aarch64 builtins
+# -marm64x, so LLVM's PURE_WINDOWS probes find __ashldi3 and friends but the
+# EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT's
+# symbol table, which then fails to link ("undefined symbol: ... (EC symbol)").
+# Seed the probes as absent -- nothing else in a cross toolchain reads them.
+case "$TARGET" in
+  arm64ec-*)
+    for _v in ASHLDI3 ASHRDI3 CMPDI2 DIVDI3 FIXDFDI FIXSFDI FLOATDIDF LSHRDI3 MODDI3 UDIVDI3 UMODDI3; do
+      args+=("-DHAVE___${_v}=0")
+    done ;;
+esac
 [ ${#EXTRA_CMAKE_FLAGS[@]} -gt 0 ] && args+=("${EXTRA_CMAKE_FLAGS[@]}")
 # GNU/Linux: zig's glibc 2.31 headers ship sys/rseq.h but not __rseq_offset/
 # __rseq_size (2.35), so GLIBC_INITS_RSEQ is defined and the link fails. Force
