@@ -221,11 +221,12 @@ args+=(
 # -marm64x, so LLVM's PURE_WINDOWS probes find __ashldi3 and friends but the
 # EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT's
 # symbol table, which then fails to link ("undefined symbol: ... (EC symbol)").
-# Seed the probes as absent -- nothing else in a cross toolchain reads them.
+# Seed every probe in that block as absent: the alloca/chkstk/__main half fails
+# the same way, and they only populate the JIT symbol table.
 case "$TARGET" in
   arm64ec-*)
-    for _v in ASHLDI3 ASHRDI3 CMPDI2 DIVDI3 FIXDFDI FIXSFDI FLOATDIDF LSHRDI3 MODDI3 UDIVDI3 UMODDI3; do
-      args+=("-DHAVE___${_v}=0")
+    for _v in HAVE__ALLOCA HAVE___ALLOCA HAVE___CHKSTK HAVE___CHKSTK_MS HAVE____CHKSTK HAVE____CHKSTK_MS HAVE___MAIN HAVE___ASHLDI3 HAVE___ASHRDI3 HAVE___CMPDI2 HAVE___DIVDI3 HAVE___FIXDFDI HAVE___FIXSFDI HAVE___FLOATDIDF HAVE___LSHRDI3 HAVE___MODDI3 HAVE___UDIVDI3 HAVE___UMODDI3; do
+      args+=("-D${_v}=0")
     done ;;
 esac
 [ ${#EXTRA_CMAKE_FLAGS[@]} -gt 0 ] && args+=("${EXTRA_CMAKE_FLAGS[@]}")
