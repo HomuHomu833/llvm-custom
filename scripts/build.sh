@@ -71,12 +71,6 @@ case "$PLATFORM" in
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
       *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
-    # x32: force local-exec TLS. lld cannot relax the R_X86_64_GOTTPOFF that
-    # llvm-rtdyld's allocateTLSSection produces ("must be used in MOVQ or ADDQ
-    # instructions only"); local-exec never emits it.
-    case "$TARGET" in
-      *x32) CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=local-exec" ;;
-    esac
     ;;
   bsd)
     TC="/opt/zig-as-llvm"
