@@ -31,4 +31,4 @@ jobs:
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
       # loongarch32-linux-gnu, loongarch32-linux-gnusf
-      targets: '["x86_64-linux-gnux32"]'
+      targets: '["powerpc64le-linux-gnu", "x86_64-linux-gnux32"]'
