@@ -110,7 +110,14 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
     SYSTEM_NAME=Windows
-    CROSS_LDFLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
+    CROSS_LDFLAGS="-static-libstdc++ -static-libgcc"
+    # llvm-mingw ships aarch64 winpthread as an ARM64X archive carrying both
+    # arm64 and arm64ec members; --whole-archive force-loads the EC ones and
+    # lld rejects them. Let the linker take only what it needs there.
+    case "$TARGET" in
+      aarch64-*) CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic" ;;
+      *) CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic" ;;
+    esac
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
