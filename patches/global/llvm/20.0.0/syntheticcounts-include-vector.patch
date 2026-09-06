@@ -1,0 +1,13 @@
+diff --git a/llvm/include/llvm/Analysis/SyntheticCountsUtils.h b/llvm/include/llvm/Analysis/SyntheticCountsUtils.h
+index 8b61ac5..45d3efe 100644
+--- a/llvm/include/llvm/Analysis/SyntheticCountsUtils.h
++++ b/llvm/include/llvm/Analysis/SyntheticCountsUtils.h
+@@ -17,6 +17,8 @@
+ #include "llvm/ADT/STLFunctionalExtras.h"
+ #include "llvm/Support/ScaledNumber.h"
+ 
++#include <vector>
++
+ namespace llvm {
+ 
+ /// Class with methods to propagate synthetic entry counts.
