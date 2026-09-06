@@ -1,0 +1,12 @@
+diff --git a/llvm/include/llvm/Demangle/ItaniumDemangle.h b/llvm/include/llvm/Demangle/ItaniumDemangle.h
+index 0dd49ea..121eae1 100644
+--- a/llvm/include/llvm/Demangle/ItaniumDemangle.h
++++ b/llvm/include/llvm/Demangle/ItaniumDemangle.h
+@@ -27,6 +27,7 @@
+ #include <cstring>
+ #include <limits>
+ #include <new>
++#include <type_traits>
+ #include <utility>
+ 
+ DEMANGLE_NAMESPACE_BEGIN
