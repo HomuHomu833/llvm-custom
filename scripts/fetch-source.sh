@@ -94,8 +94,17 @@ apply_set() {
   [ -d "$dir" ] || return 0
   for p in "$dir"/*.patch; do
     [ -f "$p" ] || continue
-    log "patch: $(basename "$p")"
-    if [ "$strict" = strict ]; then git -C "$SRC" apply "$p"; else git -C "$SRC" apply "$p" || true; fi
+    if [ "$strict" = strict ]; then
+      log "patch: $(basename "$p")"
+      git -C "$SRC" apply "$p"
+    elif git -C "$SRC" apply --check "$p" 2>/dev/null; then
+      log "patch: $(basename "$p")"
+      git -C "$SRC" apply "$p"
+    else
+      # Optional sets span revisions that share an LLVM_VERSION: fix-musl-build
+      # is needed on r30's tree but the code it fixes does not exist on r29's.
+      log "patch: $(basename "$p") -- skipped, does not apply to this revision"
+    fi
   done
 }
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_VERSION" loose
