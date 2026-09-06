@@ -30,4 +30,4 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
-      targets: '["armv7-w64-mingw32"]'
+      targets: '["arm64ec-w64-mingw32"]'
