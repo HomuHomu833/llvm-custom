@@ -101,8 +101,6 @@ apply_set() {
       log "patch: $(basename "$p")"
       git -C "$SRC" apply "$p"
     else
-      # Optional sets span revisions that share an LLVM_VERSION: fix-musl-build
-      # is needed on r30's tree but the code it fixes does not exist on r29's.
       log "patch: $(basename "$p") -- skipped, does not apply to this revision"
     fi
   done
