@@ -1,5 +1,5 @@
 diff --git a/llvm/lib/TargetParser/Host.cpp b/llvm/lib/TargetParser/Host.cpp
-index 80ebe0f..bd421e9 100644
+index 80ebe0f..200e8e3 100644
 --- a/llvm/lib/TargetParser/Host.cpp
 +++ b/llvm/lib/TargetParser/Host.cpp
 @@ -418,7 +418,7 @@ StringRef sys::detail::getHostCPUNameForRISCV(StringRef ProcCpuinfoContent) {
@@ -11,12 +11,14 @@ index 80ebe0f..bd421e9 100644
    return "generic";
  #else
    uint8_t v3_insns[40] __attribute__ ((aligned (8))) =
-@@ -484,7 +484,7 @@ StringRef sys::detail::getHostCPUNameForBPF() {
+@@ -483,8 +483,8 @@ StringRef sys::detail::getHostCPUNameForBPF() {
+ #endif
  }
  
- #if defined(__i386__) || defined(_M_IX86) || \
+-#if defined(__i386__) || defined(_M_IX86) || \
 -    defined(__x86_64__) || defined(_M_X64)
-+    (defined(__x86_64__) && !defined(__arm64ec__)) || defined(_M_X64)
++#if (defined(__i386__) || defined(_M_IX86) || \
++     defined(__x86_64__) || defined(_M_X64)) && !defined(__arm64ec__)
  
  // The check below for i386 was copied from clang's cpuid.h (__get_cpuid_max).
  // Check motivated by bug reports for OpenSSL crashing on CPUs without CPUID
@@ -38,12 +40,14 @@ index 80ebe0f..bd421e9 100644
    // gcc doesn't know cpuid would clobber ebx/rbx. Preserve it manually.
    // FIXME: should we save this for Clang?
    __asm__("movq\t%%rbx, %%rsi\n\t"
-@@ -1587,7 +1587,7 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
+@@ -1586,8 +1586,8 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
+ } // namespace llvm
  #endif
  
- #if defined(__i386__) || defined(_M_IX86) || \
+-#if defined(__i386__) || defined(_M_IX86) || \
 -    defined(__x86_64__) || defined(_M_X64)
-+    (defined(__x86_64__) && !defined(__arm64ec__)) || defined(_M_X64)
++#if (defined(__i386__) || defined(_M_IX86) || \
++     defined(__x86_64__) || defined(_M_X64)) && !defined(__arm64ec__)
  bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
    unsigned EAX = 0, EBX = 0, ECX = 0, EDX = 0;
    unsigned MaxLevel;

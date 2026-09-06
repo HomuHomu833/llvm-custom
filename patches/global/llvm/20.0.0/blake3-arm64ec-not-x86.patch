@@ -1,0 +1,36 @@
+diff --git a/llvm/lib/Support/BLAKE3/CMakeLists.txt b/llvm/lib/Support/BLAKE3/CMakeLists.txt
+index 51317b8..0b1e365 100644
+--- a/llvm/lib/Support/BLAKE3/CMakeLists.txt
++++ b/llvm/lib/Support/BLAKE3/CMakeLists.txt
+@@ -39,7 +39,8 @@ if (CAN_USE_ASSEMBLER)
+     endif()
+   elseif(WIN32 OR CYGWIN)
+     check_symbol_exists(__x86_64__ "" IS_X64)
+-    if (IS_X64)
++    check_symbol_exists(__arm64ec__ "" IS_ARM64EC)
++    if (IS_X64 AND NOT IS_ARM64EC)
+       list(APPEND LLVM_BLAKE3_FILES
+         blake3_sse2_x86-64_windows_gnu.S
+         blake3_sse41_x86-64_windows_gnu.S
+diff --git a/llvm/lib/Support/BLAKE3/blake3_impl.h b/llvm/lib/Support/BLAKE3/blake3_impl.h
+index c679ecd..2847393 100644
+--- a/llvm/lib/Support/BLAKE3/blake3_impl.h
++++ b/llvm/lib/Support/BLAKE3/blake3_impl.h
+@@ -32,7 +32,7 @@ enum blake3_flags {
+ #define INLINE static inline __attribute__((always_inline))
+ #endif
+ 
+-#if defined(__x86_64__) || defined(_M_X64) 
++#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__arm64ec__)
+ #define IS_X86
+ #define IS_X86_64
+ #endif
+@@ -42,7 +42,7 @@ enum blake3_flags {
+ #define IS_X86_32
+ #endif
+ 
+-#if defined(__aarch64__) || defined(_M_ARM64)
++#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm64ec__)
+ #define IS_AARCH64
+ #endif
+ 
