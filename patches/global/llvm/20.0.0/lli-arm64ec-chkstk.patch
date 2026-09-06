@@ -1,0 +1,17 @@
+diff --git a/llvm/tools/lli/lli.cpp b/llvm/tools/lli/lli.cpp
+index 25f43a4..c11432e 100644
+--- a/llvm/tools/lli/lli.cpp
++++ b/llvm/tools/lli/lli.cpp
+@@ -1291,7 +1291,11 @@ Expected<std::unique_ptr<orc::ExecutorProcessControl>> launchRemote() {
+ //
+ // TODO: Move this into libORC at some point, see
+ // https://github.com/llvm/llvm-project/issues/56603.
+-#ifdef __MINGW32__
++// arm64ec: llvm-mingw builds no compiler-rt for EC, so neither ___chkstk_ms
++// (the x86_64 name it would pick, since __x86_64__ is defined) nor __chkstk
++// exists in EC-mangled form -- both were tried and both fail to link. Skip the
++// re-export; it only lets Orc resolve stack probes in JITed code.
++#if defined(__MINGW32__) && !defined(__arm64ec__)
+ // This is a MinGW version of #pragma comment(linker, "...") that doesn't
+ // require compiling with -fms-extensions.
+ #if defined(__i386__)

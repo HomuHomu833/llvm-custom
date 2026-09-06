@@ -1,0 +1,54 @@
+diff --git a/llvm/lib/TargetParser/Host.cpp b/llvm/lib/TargetParser/Host.cpp
+index 986b9a2..f0cd641 100644
+--- a/llvm/lib/TargetParser/Host.cpp
++++ b/llvm/lib/TargetParser/Host.cpp
+@@ -51,7 +51,8 @@
+ #include <kstat.h>
+ #endif
+ #if defined(__GNUC__) || defined(__clang__)
+-#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER)
++#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER) &&      \
++    !defined(__arm64ec__)
+ #include <cpuid.h>
+ #endif
+ #endif
+@@ -527,14 +528,15 @@ StringRef sys::detail::getHostCPUNameForBPF() {
+ #endif
+ }
+ 
+-#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) ||            \
+-    defined(_M_X64)
++#if (defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) ||           \
++     defined(_M_X64)) && !defined(__arm64ec__)
+ 
+ /// getX86CpuIDAndInfo - Execute the specified cpuid and return the 4 values in
+ /// the specified arguments.  If we can't run cpuid on the host, return true.
+ static bool getX86CpuIDAndInfo(unsigned value, unsigned *rEAX, unsigned *rEBX,
+                                unsigned *rECX, unsigned *rEDX) {
+-#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER)
++#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER) &&      \
++    !defined(__arm64ec__)
+   return !__get_cpuid(value, rEAX, rEBX, rECX, rEDX);
+ #elif defined(_MSC_VER)
+   // The MSVC intrinsic is portable across x86 and x64.
+@@ -593,7 +595,8 @@ static bool getX86CpuIDAndInfoEx(unsigned value, unsigned subleaf,
+   // are such that __cpuidex is defined within cpuid.h for both, we can remove
+   // the __get_cpuid_count function and share the MSVC implementation between
+   // all three.
+-#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER)
++#if (defined(__i386__) || defined(__x86_64__)) && !defined(_MSC_VER) &&      \
++    !defined(__arm64ec__)
+   return !__get_cpuid_count(value, subleaf, rEAX, rEBX, rECX, rEDX);
+ #elif defined(_MSC_VER)
+   int registers[4];
+@@ -1654,8 +1657,8 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
+ } // namespace llvm
+ #endif
+ 
+-#if defined(__i386__) || defined(_M_IX86) || \
+-    defined(__x86_64__) || defined(_M_X64)
++#if (defined(__i386__) || defined(_M_IX86) || \
++     defined(__x86_64__) || defined(_M_X64)) && !defined(__arm64ec__)
+ const StringMap<bool> sys::getHostCPUFeatures() {
+   unsigned EAX = 0, EBX = 0, ECX = 0, EDX = 0;
+   unsigned MaxLevel;

@@ -1,8 +1,8 @@
 diff --git a/llvm/lib/TargetParser/Host.cpp b/llvm/lib/TargetParser/Host.cpp
-index f65ed25..87fbc14 100644
+index 80ebe0f..200e8e3 100644
 --- a/llvm/lib/TargetParser/Host.cpp
 +++ b/llvm/lib/TargetParser/Host.cpp
-@@ -446,7 +446,7 @@ StringRef sys::detail::getHostCPUNameForRISCV(StringRef ProcCpuinfoContent) {
+@@ -418,7 +418,7 @@ StringRef sys::detail::getHostCPUNameForRISCV(StringRef ProcCpuinfoContent) {
  }
  
  StringRef sys::detail::getHostCPUNameForBPF() {
@@ -11,7 +11,7 @@ index f65ed25..87fbc14 100644
    return "generic";
  #else
    uint8_t v3_insns[40] __attribute__ ((aligned (8))) =
-@@ -511,8 +511,8 @@ StringRef sys::detail::getHostCPUNameForBPF() {
+@@ -483,8 +483,8 @@ StringRef sys::detail::getHostCPUNameForBPF() {
  #endif
  }
  
@@ -22,7 +22,7 @@ index f65ed25..87fbc14 100644
  
  // The check below for i386 was copied from clang's cpuid.h (__get_cpuid_max).
  // Check motivated by bug reports for OpenSSL crashing on CPUs without CPUID
-@@ -554,7 +554,7 @@ static bool isCpuIdSupported() {
+@@ -526,7 +526,7 @@ static bool isCpuIdSupported() {
  static bool getX86CpuIDAndInfo(unsigned value, unsigned *rEAX, unsigned *rEBX,
                                 unsigned *rECX, unsigned *rEDX) {
  #if defined(__GNUC__) || defined(__clang__)
@@ -31,7 +31,7 @@ index f65ed25..87fbc14 100644
    // gcc doesn't know cpuid would clobber ebx/rbx. Preserve it manually.
    // FIXME: should we save this for Clang?
    __asm__("movq\t%%rbx, %%rsi\n\t"
-@@ -630,7 +630,7 @@ static bool getX86CpuIDAndInfoEx(unsigned value, unsigned subleaf,
+@@ -602,7 +602,7 @@ static bool getX86CpuIDAndInfoEx(unsigned value, unsigned subleaf,
                                   unsigned *rEAX, unsigned *rEBX, unsigned *rECX,
                                   unsigned *rEDX) {
  #if defined(__GNUC__) || defined(__clang__)
@@ -40,7 +40,7 @@ index f65ed25..87fbc14 100644
    // gcc doesn't know cpuid would clobber ebx/rbx. Preserve it manually.
    // FIXME: should we save this for Clang?
    __asm__("movq\t%%rbx, %%rsi\n\t"
-@@ -1702,8 +1702,8 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
+@@ -1586,8 +1586,8 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
  } // namespace llvm
  #endif
  
@@ -51,12 +51,3 @@ index f65ed25..87fbc14 100644
  bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
    unsigned EAX = 0, EBX = 0, ECX = 0, EDX = 0;
    unsigned MaxLevel;
-@@ -2016,7 +2016,7 @@ static Triple withHostArch(Triple T) {
- #elif defined(__x86_64h__)
-   T.setArch(Triple::x86_64);
-   T.setArchName("x86_64h");
--#elif defined(__x86_64__)
-+#elif (defined(__x86_64__) && !defined(__arm64ec__))
-   T.setArch(Triple::x86_64);
-   T.setArchName("x86_64");
- #elif defined(__i386__)
