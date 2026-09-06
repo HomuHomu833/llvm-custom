@@ -1,0 +1,58 @@
+diff --git a/llvm/lib/TargetParser/Host.cpp b/llvm/lib/TargetParser/Host.cpp
+index f65ed25..1fcd7fb 100644
+--- a/llvm/lib/TargetParser/Host.cpp
++++ b/llvm/lib/TargetParser/Host.cpp
+@@ -446,7 +446,7 @@ StringRef sys::detail::getHostCPUNameForRISCV(StringRef ProcCpuinfoContent) {
+ }
+ 
+ StringRef sys::detail::getHostCPUNameForBPF() {
+-#if !defined(__linux__) || !defined(__x86_64__)
++#if !defined(__linux__) || !(defined(__x86_64__) && !defined(__arm64ec__))
+   return "generic";
+ #else
+   uint8_t v3_insns[40] __attribute__ ((aligned (8))) =
+@@ -512,7 +512,7 @@ StringRef sys::detail::getHostCPUNameForBPF() {
+ }
+ 
+ #if defined(__i386__) || defined(_M_IX86) || \
+-    defined(__x86_64__) || defined(_M_X64)
++    (defined(__x86_64__) && !defined(__arm64ec__)) || defined(_M_X64)
+ 
+ // The check below for i386 was copied from clang's cpuid.h (__get_cpuid_max).
+ // Check motivated by bug reports for OpenSSL crashing on CPUs without CPUID
+@@ -554,7 +554,7 @@ static bool isCpuIdSupported() {
+ static bool getX86CpuIDAndInfo(unsigned value, unsigned *rEAX, unsigned *rEBX,
+                                unsigned *rECX, unsigned *rEDX) {
+ #if defined(__GNUC__) || defined(__clang__)
+-#if defined(__x86_64__)
++#if (defined(__x86_64__) && !defined(__arm64ec__))
+   // gcc doesn't know cpuid would clobber ebx/rbx. Preserve it manually.
+   // FIXME: should we save this for Clang?
+   __asm__("movq\t%%rbx, %%rsi\n\t"
+@@ -630,7 +630,7 @@ static bool getX86CpuIDAndInfoEx(unsigned value, unsigned subleaf,
+                                  unsigned *rEAX, unsigned *rEBX, unsigned *rECX,
+                                  unsigned *rEDX) {
+ #if defined(__GNUC__) || defined(__clang__)
+-#if defined(__x86_64__)
++#if (defined(__x86_64__) && !defined(__arm64ec__))
+   // gcc doesn't know cpuid would clobber ebx/rbx. Preserve it manually.
+   // FIXME: should we save this for Clang?
+   __asm__("movq\t%%rbx, %%rsi\n\t"
+@@ -1703,7 +1703,7 @@ VendorSignatures getVendorSignature(unsigned *MaxLeaf) {
+ #endif
+ 
+ #if defined(__i386__) || defined(_M_IX86) || \
+-    defined(__x86_64__) || defined(_M_X64)
++    (defined(__x86_64__) && !defined(__arm64ec__)) || defined(_M_X64)
+ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
+   unsigned EAX = 0, EBX = 0, ECX = 0, EDX = 0;
+   unsigned MaxLevel;
+@@ -2016,7 +2016,7 @@ static Triple withHostArch(Triple T) {
+ #elif defined(__x86_64h__)
+   T.setArch(Triple::x86_64);
+   T.setArchName("x86_64h");
+-#elif defined(__x86_64__)
++#elif (defined(__x86_64__) && !defined(__arm64ec__))
+   T.setArch(Triple::x86_64);
+   T.setArchName("x86_64");
+ #elif defined(__i386__)
