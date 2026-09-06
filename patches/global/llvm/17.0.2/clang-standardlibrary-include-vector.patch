@@ -1,0 +1,12 @@
+diff --git a/clang/include/clang/Tooling/Inclusions/StandardLibrary.h b/clang/include/clang/Tooling/Inclusions/StandardLibrary.h
+index beb2f49..ff80110 100644
+--- a/clang/include/clang/Tooling/Inclusions/StandardLibrary.h
++++ b/clang/include/clang/Tooling/Inclusions/StandardLibrary.h
+@@ -21,6 +21,7 @@
+ #include "llvm/Support/raw_ostream.h"
+ #include <optional>
+ #include <string>
++#include <vector>
+ 
+ namespace clang {
+ class Decl;
