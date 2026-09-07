@@ -1,0 +1,30 @@
+diff --git a/bolt/tools/driver/CMakeLists.txt b/bolt/tools/driver/CMakeLists.txt
+index 1c59619..24aa1e2 100644
+--- a/bolt/tools/driver/CMakeLists.txt
++++ b/bolt/tools/driver/CMakeLists.txt
+@@ -38,9 +38,9 @@ set(BOLT_DEPENDS
+ 
+ add_custom_target(bolt DEPENDS ${BOLT_DEPENDS})
+ install(PROGRAMS
+-  ${CMAKE_BINARY_DIR}/bin/llvm-bolt
+-  ${CMAKE_BINARY_DIR}/bin/perf2bolt
+-  ${CMAKE_BINARY_DIR}/bin/llvm-boltdiff
++  ${CMAKE_BINARY_DIR}/bin/llvm-bolt${CMAKE_EXECUTABLE_SUFFIX}
++  ${CMAKE_BINARY_DIR}/bin/perf2bolt${CMAKE_EXECUTABLE_SUFFIX}
++  ${CMAKE_BINARY_DIR}/bin/llvm-boltdiff${CMAKE_EXECUTABLE_SUFFIX}
+   DESTINATION ${CMAKE_INSTALL_BINDIR}
+   COMPONENT bolt
+   )
+diff --git a/bolt/tools/merge-fdata/CMakeLists.txt b/bolt/tools/merge-fdata/CMakeLists.txt
+index 9405acb..5be5154 100644
+--- a/bolt/tools/merge-fdata/CMakeLists.txt
++++ b/bolt/tools/merge-fdata/CMakeLists.txt
+@@ -12,7 +12,7 @@ set_target_properties(merge-fdata PROPERTIES FOLDER "BOLT")
+ 
+ add_dependencies(bolt merge-fdata)
+ install(PROGRAMS
+-  ${CMAKE_BINARY_DIR}/bin/merge-fdata
++  ${CMAKE_BINARY_DIR}/bin/merge-fdata${CMAKE_EXECUTABLE_SUFFIX}
+   DESTINATION ${CMAKE_INSTALL_BINDIR}
+   COMPONENT bolt
+   )
