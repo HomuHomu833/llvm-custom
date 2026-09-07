@@ -91,7 +91,7 @@ rm -rf "$ROOTDIR/llvm_android"
 
 apply_set() {
   local dir="$1" strict="$2" p
-  [ -d "$dir" ] || return 0
+  [ -d "$dir" ] || { log "no $strict patches for $(basename "$dir")"; return 0; }
   for p in "$dir"/*.patch; do
     [ -f "$p" ] || continue
     if [ "$strict" = strict ]; then
@@ -105,8 +105,11 @@ apply_set() {
     fi
   done
 }
-[ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_VERSION" loose
-apply_set "$PATCHES_DIR/global/llvm/$LLVM_VERSION" strict
+# Keyed by $LLVM_REV, not $LLVM_VERSION: the version string is not unique per
+# source tree (r29 and r30 both say 21.0.0, off branch points three months
+# apart), and several strings share one tree (18.0.1-18.0.4 are all d8003a45).
+[ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_REV" loose
+apply_set "$PATCHES_DIR/global/llvm/$LLVM_REV" strict
 
 # bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
 # doesn't compile for Android).

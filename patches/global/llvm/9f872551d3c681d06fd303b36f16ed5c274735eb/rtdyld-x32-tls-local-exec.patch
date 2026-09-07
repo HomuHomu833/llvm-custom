@@ -1,5 +1,5 @@
 diff --git a/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp b/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
-index 107b555..4bab582 100644
+index 40a7b86..144289d 100644
 --- a/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
 +++ b/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
 @@ -351,8 +351,15 @@ uint8_t *TrivialMemoryManager::allocateDataSection(uintptr_t Size,
