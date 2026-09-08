@@ -48,7 +48,7 @@ export ZIG_TARGET="$TARGET"
 # ppc64le glibc: clang's IEEE-128 long double makes libc++ call
 # glibc's __*ieee128 printf entries, which arrived in 2.32.
 case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
-CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
+CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_CXXFLAGS="$CROSS_CFLAGS"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
 # LLVM_BUILD_STATIC: ON for fully-static targets (bionic/musl), OFF otherwise.
 LLVM_STATIC=OFF
 # LLVM_ENABLE_PIC: OFF everywhere except macOS. arm64/arm64e Mach-O *requires* PIE.
@@ -68,6 +68,7 @@ case "$PLATFORM" in
     TC="/opt/zig-as-llvm"
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
+    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     case "$TARGET" in
       *musl*) CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
@@ -78,6 +79,7 @@ case "$PLATFORM" in
     TC="/opt/zig-as-llvm"
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
+    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     case "$(echo "$TARGET" | cut -d- -f2)" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
@@ -113,6 +115,7 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
     SYSTEM_NAME=Windows
+    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     CROSS_LDFLAGS="-static-libstdc++ -static-libgcc"
     # llvm-mingw ships aarch64 winpthread as an ARM64X archive carrying both
     # arm64 and arm64ec members; --whole-archive force-loads the EC ones and
@@ -124,8 +127,6 @@ case "$PLATFORM" in
     ;;
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
-# C++-only warnings that fire inside LLVM's own headers on newer Clang and have no fix on our side.
-CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
 # Extra cmake flags for zstd + LLVM: env-supplied plus Darwin SDK/libtool/arch
