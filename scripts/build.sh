@@ -68,7 +68,6 @@ case "$PLATFORM" in
     TC="/opt/zig-as-llvm"
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
-    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     case "$TARGET" in
       *musl*) CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
               [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
@@ -79,7 +78,6 @@ case "$PLATFORM" in
     TC="/opt/zig-as-llvm"
     CROSS_CC="$TC/bin/cc"; CROSS_CXX="$TC/bin/c++"; CROSS_AR="$TC/bin/ar"; CROSS_RANLIB="$TC/bin/ranlib"
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
-    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     case "$(echo "$TARGET" | cut -d- -f2)" in
       freebsd) SYSTEM_NAME=FreeBSD ;;
       netbsd)  SYSTEM_NAME=NetBSD ;;
@@ -115,7 +113,6 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/${TARGET}-strip"; CROSS_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     CROSS_LD="$TC/bin/${TARGET}-ld"
     SYSTEM_NAME=Windows
-    CROSS_CXXFLAGS="$CROSS_CFLAGS -Wno-unnecessary-virtual-specifier -Wno-unused-template"
     CROSS_LDFLAGS="-static-libstdc++ -static-libgcc"
     # llvm-mingw ships aarch64 winpthread as an ARM64X archive carrying both
     # arm64 and arm64ec members; --whole-archive force-loads the EC ones and
@@ -207,7 +204,7 @@ args=(
   -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_BUILD_EXAMPLES=OFF
   -DLLVM_BUILD_TESTS=OFF -DLLVM_INCLUDE_TESTS=OFF
   -DCLANG_INCLUDE_TESTS=OFF -DCLANG_BUILD_TESTS=OFF -DLLVM_BUILD_TOOLS=ON
-  -DLLVM_ENABLE_PEDANTIC=OFF -DLLVM_TOOL_C_TEST_BUILD=OFF
+  -DLLVM_ENABLE_WARNINGS=OFF -DLLVM_ENABLE_PEDANTIC=OFF -DLLVM_TOOL_C_TEST_BUILD=OFF
   -DCLANG_TOOL_CLANG_IMPORT_TEST_BUILD=OFF -DCLANG_TOOL_APINOTES_TEST_BUILD=OFF
   -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF
   -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF
