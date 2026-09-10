@@ -37,9 +37,50 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 fetch() {
   local i=0
   until aria2c --console-log-level=error --check-certificate=false \
-               --max-tries=5 --retry-wait=2 --connect-timeout=15 "$@"; do
+               --max-tries=5 --retry-wait=2 --connect-timeout=15 \
+               --allow-overwrite=true --auto-file-renaming=false "$@"; do
     i=$((i + 1)); [ "$i" -ge 5 ] && { echo "fetch: giving up after $i attempts" >&2; return 1; }
     echo "fetch: aria2c failed, retry $i/5 in 2s..." >&2; sleep 2
+  done
+}
+
+# Unpack ARCHIVE into DEST, picking the tool from the extension.
+unpack() {
+  case "$1" in
+    *.tar.gz|*.tgz) tar -xzf "$1" -C "$2" ;;
+    *.tar.xz)       tar -xJf "$1" -C "$2" ;;
+    *.tar.bz2)      tar -xjf "$1" -C "$2" ;;
+    *.zip)          unzip -qq -o "$1" -d "$2" ;;
+    *) echo "unpack: don't know how to unpack $1" >&2; return 1 ;;
+  esac
+}
+
+# Download URL to ARCHIVE and unpack it into DEST (default: the current
+# directory), re-downloading when the unpack fails. ARCHIVE is removed on the
+# way out. Usage: fetch_unpack URL ARCHIVE [DEST]
+#
+# aria2c's own retries cannot see a truncated download. Endpoints that generate
+# archives on the fly -- gitiles' +archive, codeload -- stream them chunked with
+# no Content-Length (aria2 logs the size as "0B/0B"), so when the far end cuts
+# the stream short there is no expected size to compare against: aria2 prints
+# "(OK):download completed" and exits 0 on a 600KiB truncation of a 200MiB
+# archive, and the damage only surfaces further down as "gzip: stdin:
+# unexpected end of file". Unpacking is the only integrity check available, so
+# the retry has to wrap the download and the unpack together.
+fetch_unpack() {
+  local url="$1" archive="$2" dest="${3:-.}" i=0
+  mkdir -p "$dest"
+  while :; do
+    rm -f "$archive" "$archive.aria2"
+    if fetch --dir="$(dirname "$archive")" -o "$(basename "$archive")" "$url" \
+       && unpack "$archive" "$dest"; then
+      rm -f "$archive"
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -ge 5 ] && { echo "fetch_unpack: $url still incomplete after $i attempts" >&2; return 1; }
+    echo "fetch_unpack: $(basename "$archive") came down incomplete, retry $i/5 in $((5 * i))s..." >&2
+    sleep $((5 * i))
   done
 }
 
@@ -141,18 +182,14 @@ fi
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib"
-  fetch --dir=/tmp -o zlib.tar.xz \
-    https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
-  && xz -d < /tmp/zlib.tar.xz | tar -x -C "$ROOTDIR" \
-  && rm /tmp/zlib.tar.xz
+  fetch_unpack https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
+    /tmp/zlib.tar.xz "$ROOTDIR"
   ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd"
-  fetch --dir=/tmp -o zstd.tar.gz \
-    https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
-  && gzip -d < /tmp/zstd.tar.gz | tar -x -C "$ROOTDIR" \
-  && rm /tmp/zstd.tar.gz
+  fetch_unpack https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
+    /tmp/zstd.tar.gz "$ROOTDIR"
   # arm64ec carries x86_64's macros so datatype layouts match x64, but zstd reads
   # them as "has x86 instructions": _M_AMD64 pulls <emmintrin.h> (ZSTD_NO_INTRINSICS
   # is zstd's own opt-out), and __x86_64__/_M_X64 gate cpuid asm, .p2align hints and
