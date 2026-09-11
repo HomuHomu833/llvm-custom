@@ -280,6 +280,15 @@ case "$TARGET" in
       args+=("-D${_v}=0")
     done ;;
 esac
+# Before LLVM 16, CrossCompile.cmake forwarded our cross compiler into the NATIVE
+# sub-build, so llvm-tblgen came out for the target and the build died on
+# "Exec format error". 16 guarded that on NOT CMAKE_CROSSCOMPILING; older trees
+# need the host compiler named outright.
+case "${LLVM_VERSION%%.*}" in
+  ''|*[!0-9]*) ;;
+  *) [ "${LLVM_VERSION%%.*}" -lt 16 ] && args+=(
+       -DCROSS_TOOLCHAIN_FLAGS_NATIVE="-DCMAKE_C_COMPILER=/usr/bin/cc;-DCMAKE_CXX_COMPILER=/usr/bin/c++" ) ;;
+esac
 [ ${#EXTRA_CMAKE_FLAGS[@]} -gt 0 ] && args+=("${EXTRA_CMAKE_FLAGS[@]}")
 # GNU/Linux: zig's glibc 2.31 headers ship sys/rseq.h but not __rseq_offset/
 # __rseq_size (2.35), so GLIBC_INITS_RSEQ is defined and the link fails. Force
