@@ -177,6 +177,30 @@ apply_set() {
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_REV" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_REV" strict
 
+# GCC 13 (the ubuntu-24.04 host compiler) dropped the transitive <cstdint> that
+# older headers relied on, so LLVM <= 14 fails to build the NATIVE host stage:
+#   Signals.h:119:24: error: 'uintptr_t' was not declared in this scope
+# Only r25 and older ship an LLVM that predates the upstream fix. Not gated on
+# PLATFORM -- every platform cross-compiles, so every platform builds NATIVE.
+NDK_MAJOR=""
+case "$NDK_VERSION" in
+  ''|*[!0-9]*) ;;
+  *) NDK_MAJOR="$NDK_VERSION" ;;
+esac
+
+if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
+  # Insert after the include guard so it lands ahead of every other include.
+  add_cstdint() {
+    local rel="$1" guard="$2" f="$SRC/$1"
+    [ -f "$f" ] || return 0
+    if grep -q '^#include <cstdint>' "$f"; then return 0; fi
+    sed -i "/^#define ${guard}$/a #include <cstdint>" "$f"
+    log "  + <cstdint> -> $rel"
+  }
+  log "r${NDK_VERSION}: adding <cstdint> includes GCC 13+ no longer provides"
+  add_cstdint llvm/include/llvm/Support/Signals.h LLVM_SUPPORT_SIGNALS_H
+fi
+
 # bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
 # doesn't compile for Android).
 if [ "${PLATFORM:-}" = bionic ]; then
