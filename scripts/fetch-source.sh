@@ -107,9 +107,15 @@ ver_line=$("$NDK_LLVM/bin/clang" --version)
 LLVM_VERSION=$(echo "$ver_line" | sed -n 's/.*clang version \([0-9][0-9.]*[a-zA-Z0-9]*\).*/\1/p')
 LLVM_REV=$(echo "$ver_line" | sed -E 's/.*llvm-project ([a-f0-9]{40}).*/\1/' | head -n1)
 ANDROID_REV=$(grep 'llvm_android/+/.*' "$CLANG_SOURCE_INFO" | sed -n 's/.*llvm_android\/\+//; s/\/patches.*//p' | sed 's/\/\+//g; s/^\+//g' | head -n1)
+# CLANG_VENDOR, lifted whole from the official clang so ours reports the same
+# source drop: "Android (<build id>, based on <revision>)". llvm_android builds
+# it from its own build number and svn revision, neither of which we have, but
+# the string is right there in the binary we already ran.
+CLANG_VENDOR=$(echo "$ver_line" | sed -n 's/^\(Android ([^)]*)\).*/\1/p' | head -n1)
 [ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] && [ -n "$ANDROID_REV" ] || {
   echo "Failed to resolve LLVM/android versions from the NDK" >&2; exit 1; }
 log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV"
+log "Vendor: ${CLANG_VENDOR:-Android}"
 
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
@@ -168,6 +174,7 @@ fi
 
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
+CLANG_VENDOR='$CLANG_VENDOR'
 SRC=$SRC
 NDK_DIR=$NDK_DIR
 EOF
