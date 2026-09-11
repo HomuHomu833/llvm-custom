@@ -14,7 +14,8 @@
 #   ANDROID_API bionic API level (default: 25, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
 #
-# Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION.
+# Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
+# plus CLANG_VENDOR and LLVM_TARGETS resolved from the NDK and llvm_android.
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
@@ -222,7 +223,7 @@ fi
 args=(
   -DCMAKE_INSTALL_PREFIX="$OUT"
   -DCMAKE_PREFIX_PATH="$INSTALL_DIR"
-  -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;BPF;RISCV;WebAssembly;X86"
+  -DLLVM_TARGETS_TO_BUILD="${LLVM_TARGETS:-AArch64;ARM;BPF;RISCV;WebAssembly;X86}"
   -DCMAKE_BUILD_TYPE=MinSizeRel
   -DCMAKE_CROSSCOMPILING=True
   -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME"

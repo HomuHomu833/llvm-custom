@@ -139,6 +139,20 @@ for p in "${PATCHES[@]:-}"; do
     if [ -f "$base" ]; then git -C "$SRC" apply "$base" 2>/dev/null || true; break; fi
   done
 done
+
+# Take the backend list from the same llvm_android revision rather than pinning
+# our own: it grew RISCV and WebAssembly between r25 and r26, and would have
+# gone stale again. The file moved under src/ along the way; the declaration
+# itself has been one line throughout.
+for c in "$ROOTDIR/llvm_android/src/llvm_android/constants.py" "$ROOTDIR/llvm_android/constants.py"; do
+  [ -f "$c" ] || continue
+  LLVM_TARGETS=$(sed -n 's/^ANDROID_TARGETS.*set(\[\(.*\)\]).*/\1/p' "$c" | head -n1 | tr -d " '" | tr ',' ';')
+  [ -n "$LLVM_TARGETS" ] && break
+done
+[ -n "${LLVM_TARGETS:-}" ] || {
+  echo "Failed to read ANDROID_TARGETS from llvm_android $ANDROID_REV" >&2; exit 1; }
+log "Targets: $LLVM_TARGETS"
+
 rm -rf "$ROOTDIR/llvm_android"
 
 apply_set() {
@@ -175,6 +189,7 @@ fi
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
 CLANG_VENDOR='$CLANG_VENDOR'
+LLVM_TARGETS='$LLVM_TARGETS'
 SRC=$SRC
 NDK_DIR=$NDK_DIR
 EOF
