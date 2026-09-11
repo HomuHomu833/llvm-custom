@@ -9,7 +9,7 @@
 #                 aarch64-freebsd-none         (bsd)
 #                 x86_64-w64-mingw32           (windows)
 #                 arm64-apple-darwin           (macos)
-#   PROJECTS    LLVM_ENABLE_PROJECTS (default: bolt;clang;clang-tools-extra;lld)
+#   PROJECTS    LLVM_ENABLE_PROJECTS (default: bolt;clang;clang-tools-extra;lld;polly)
 #   ROOTDIR     work dir (default: cwd)
 #   ANDROID_API bionic API level (default: 25, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
@@ -19,7 +19,7 @@ set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
 : "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
-PROJECTS="${PROJECTS:-bolt;clang;clang-tools-extra;lld}"
+PROJECTS="${PROJECTS:-bolt;clang;clang-tools-extra;lld;polly}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PATCHES_DIR="${PATCHES_DIR:-$SCRIPT_DIR/../patches}"
 
