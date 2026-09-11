@@ -92,6 +92,15 @@ if [ ! -d "$NDK_DIR" ]; then
   log "Downloading NDK r${NDK_VERSION}${NDK_REVISION}"
   fetch_unpack "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}-linux.zip" \
     "$ROOTDIR/android-ndk.zip" "$ROOTDIR"
+  # r24-rc1 and r26-rc1 unpack to android-ndk-r24-beta3/ and -r26-beta2/, not to
+  # the revision we asked for. Take what landed.
+  if [ ! -d "$NDK_DIR" ]; then
+    NDK_DIR="$(find "$ROOTDIR" -maxdepth 1 -mindepth 1 -type d -name 'android-ndk-*' | head -n1)"
+    [ -n "$NDK_DIR" ] || { echo "no android-ndk-* directory unpacked under $ROOTDIR" >&2; exit 1; }
+    log "Archive unpacked as $(basename "$NDK_DIR")"
+    NDK_LLVM="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+    CLANG_SOURCE_INFO="$NDK_LLVM/clang_source_info.md"
+  fi
 fi
 
 ver_line=$("$NDK_LLVM/bin/clang" --version)
