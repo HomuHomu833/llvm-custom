@@ -1,0 +1,22 @@
+diff --git a/llvm/lib/ExecutionEngine/Orc/EPCGenericJITLinkMemoryManager.cpp b/llvm/lib/ExecutionEngine/Orc/EPCGenericJITLinkMemoryManager.cpp
+index 2925660..644f571 100644
+--- a/llvm/lib/ExecutionEngine/Orc/EPCGenericJITLinkMemoryManager.cpp
++++ b/llvm/lib/ExecutionEngine/Orc/EPCGenericJITLinkMemoryManager.cpp
+@@ -32,7 +32,7 @@ public:
+   MutableArrayRef<char> getWorkingMemory(ProtectionFlags Seg) override {
+     auto I = Segs.find(Seg);
+     assert(I != Segs.end() && "No allocation for seg");
+-    return {I->second.WorkingMem, I->second.ContentSize};
++    return {I->second.WorkingMem, static_cast<size_t>(I->second.ContentSize)};
+   }
+ 
+   JITTargetAddress getTargetMemory(ProtectionFlags Seg) override {
+@@ -51,7 +51,7 @@ public:
+           KV.second.TargetAddr,
+           alignTo(KV.second.ContentSize + KV.second.ZeroFillSize,
+                   Parent.EPC.getPageSize()),
+-          {WorkingMem, KV.second.ContentSize}});
++          {WorkingMem, static_cast<size_t>(KV.second.ContentSize)}});
+       WorkingMem += KV.second.ContentSize;
+     }
+     Parent.EPC.callSPSWrapperAsync<shared::SPSOrcTargetProcessFinalize>(

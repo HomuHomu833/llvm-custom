@@ -201,12 +201,18 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
   add_cstdint llvm/include/llvm/Support/Signals.h LLVM_SUPPORT_SIGNALS_H
 fi
 
-# bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
-# doesn't compile for Android).
+# bionic: gate llvm-rtdyld's x86_64/ELF fast path on !__ANDROID__ (it doesn't
+# compile for Android). The guard has to land on both the block defining
+# LLVMRTDyldTLSSpace and the one referencing it from inline asm, or the link
+# fails with "undefined symbol: LLVMRTDyldTLSSpace".
+#
+# The condition gained "&& defined(__linux__)" after LLVM 14, so match that
+# suffix optionally -- keyed to the exact later form, this silently no-opped on
+# r25 and the block compiled into the Android build.
 if [ "${PLATFORM:-}" = bionic ]; then
   log "bionic: guarding llvm-rtdyld x86_64 ELF block on !__ANDROID__"
-  sed -i '/^#if defined(__x86_64__) && defined(__ELF__) && defined(__linux__)$/ {
-    /&& !defined(__ANDROID__)/! s/$/ \&\& !defined(__ANDROID__)/
+  sed -i -E '/^#if defined\(__x86_64__\) && defined\(__ELF__\)( && defined\(__linux__\))?$/ {
+    /&& !defined\(__ANDROID__\)/! s/$/ \&\& !defined(__ANDROID__)/
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
