@@ -268,6 +268,23 @@ if [ "${PLATFORM:-}" = windows ] && [ -f "$SRC/bolt/CMakeLists.txt" ]; then
   fi
 fi
 
+# BOLT installs its binaries by bare name, so the install step cannot find them
+# wherever executables carry a suffix:
+#   file INSTALL cannot find ".../bin/llvm-bolt": No such file or directory
+# Append CMAKE_EXECUTABLE_SUFFIX, which is empty on every other platform, so
+# this is safe to run unconditionally. Newer trees carry the same change as a
+# patch; LLVM 14 lists one binary more than they do (llvm-bolt-heatmap), which
+# matching the whole line rather than each name handles on its own.
+for _f in bolt/tools/driver/CMakeLists.txt bolt/tools/merge-fdata/CMakeLists.txt; do
+  if [ -f "$SRC/$_f" ]; then
+    sed -i 's@^\([[:space:]]*\${CMAKE_BINARY_DIR}/bin/[A-Za-z0-9_-]\{1,\}\)$@\1${CMAKE_EXECUTABLE_SUFFIX}@' \
+      "$SRC/$_f"
+    if grep -q 'CMAKE_EXECUTABLE_SUFFIX' "$SRC/$_f"; then
+      log "  + exe suffix on BOLT installs -> $_f"
+    fi
+  fi
+done
+
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
 CLANG_VENDOR='$CLANG_VENDOR'
