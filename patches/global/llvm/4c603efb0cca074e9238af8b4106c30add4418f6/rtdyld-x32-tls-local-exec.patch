@@ -1,0 +1,18 @@
+diff --git a/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp b/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
+index 21339a3..875c227 100644
+--- a/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
++++ b/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp
+@@ -353,6 +353,13 @@ uint8_t *TrivialMemoryManager::allocateDataSection(uintptr_t Size,
+ #if defined(__x86_64__) && defined(__ELF__)
+ extern "C" {
++// x32: lld relaxes GOTTPOFF only in the 64-bit movq/addq encodings, so an
++// initial-exec access does not link here. Local-exec emits TPOFF32 directly.
++#if defined(__ILP32__)
++alignas(16) __attribute__((visibility("hidden"), tls_model("local-exec"),
++                           used)) thread_local char LLVMRTDyldTLSSpace[16];
++#else
+ alignas(16) __attribute__((visibility("hidden"), tls_model("initial-exec"),
+                            used)) thread_local char LLVMRTDyldTLSSpace[16];
++#endif
+ }
+ #endif
