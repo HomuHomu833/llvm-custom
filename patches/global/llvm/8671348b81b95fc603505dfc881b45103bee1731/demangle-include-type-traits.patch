@@ -1,0 +1,12 @@
+diff --git a/llvm/include/llvm/Demangle/ItaniumDemangle.h b/llvm/include/llvm/Demangle/ItaniumDemangle.h
+index dd824a5..a68b27b 100644
+--- a/llvm/include/llvm/Demangle/ItaniumDemangle.h
++++ b/llvm/include/llvm/Demangle/ItaniumDemangle.h
+@@ -27,6 +27,7 @@
+ #include <cstdlib>
+ #include <cstring>
+ #include <numeric>
++#include <type_traits>
+ #include <utility>
+
+ #define FOR_EACH_NODE_KIND(X) \

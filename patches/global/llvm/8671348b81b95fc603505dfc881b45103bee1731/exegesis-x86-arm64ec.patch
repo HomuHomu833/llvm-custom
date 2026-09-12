@@ -1,0 +1,32 @@
+diff --git a/llvm/tools/llvm-exegesis/lib/X86/Target.cpp b/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
+index 1be119a..90f919d 100644
+--- a/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
++++ b/llvm/tools/llvm-exegesis/lib/X86/Target.cpp
+@@ -619,5 +619,5 @@ class X86SavedState : public ExegesisTarget::SavedState {
+ public:
+   X86SavedState() {
+-#ifdef __x86_64__
++#if defined(__x86_64__) && !defined(__arm64ec__)
+ # if defined(_MSC_VER)
+     _fxsave64(FPState);
+@@ -635,5 +635,5 @@ public:
+     // Restoring the X87 state does not flush pending exceptions, make sure
+     // these exceptions are flushed now.
+-#ifdef __x86_64__
++#if defined(__x86_64__) && !defined(__arm64ec__)
+ # if defined(_MSC_VER)
+     _clearfp();
+@@ -651,5 +651,5 @@ public:
+
+ private:
+-#ifdef __x86_64__
++#if defined(__x86_64__) && !defined(__arm64ec__)
+   alignas(16) char FPState[512];
+   uint64_t Eflags;
+@@ -750,5 +750,5 @@ private:
+       // the counter uses some intel-specific magic and it could
+       // be confuse and think an AMD machine actually has LBR support.
+-#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) ||            \
++#if defined(__i386__) || defined(_M_IX86) || (defined(__x86_64__) && !defined(__arm64ec__)) ||            \
+     defined(_M_X64)
+     using namespace sys::detail::x86;
