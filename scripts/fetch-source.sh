@@ -177,11 +177,18 @@ apply_set() {
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_REV" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_REV" strict
 
-# GCC 13 (the ubuntu-24.04 host compiler) dropped the transitive <cstdint> that
-# older headers relied on, so LLVM <= 14 fails to build the NATIVE host stage:
+# Newer toolchains stopped providing includes that LLVM <= 14 relied on getting
+# transitively. GCC 13 (the ubuntu-24.04 host compiler) dropped <cstdint>, which
+# breaks the NATIVE host stage:
 #   Signals.h:119:24: error: 'uintptr_t' was not declared in this scope
-# Only r25 and older ship an LLVM that predates the upstream fix. Not gated on
-# PLATFORM -- every platform cross-compiles, so every platform builds NATIVE.
+# llvm-mingw's libc++ splits <exception> into granular headers, which breaks the
+# demangler for every mingw target:
+#   Utility.h:40:9: error: no member named 'terminate' in namespace 'std'
+# Only r25 and older ship an LLVM predating the upstream fixes. Done with sed
+# rather than patches/ because these span several source revisions and a
+# patch that does not apply is a hard failure under apply_set's strict mode.
+# Not gated on PLATFORM -- every platform cross-compiles, so every platform
+# builds NATIVE.
 NDK_MAJOR=""
 case "$NDK_VERSION" in
   ''|*[!0-9]*) ;;
@@ -189,16 +196,38 @@ case "$NDK_VERSION" in
 esac
 
 if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
+  log "r${NDK_VERSION}: adding includes newer toolchains no longer provide"
   # Insert after the include guard so it lands ahead of every other include.
-  add_cstdint() {
-    local rel="$1" guard="$2" f="$SRC/$1"
-    [ -f "$f" ] || return 0
-    if grep -q '^#include <cstdint>' "$f"; then return 0; fi
-    sed -i "/^#define ${guard}$/a #include <cstdint>" "$f"
-    log "  + <cstdint> -> $rel"
+  # GUARD is a sed address, so it may be a pattern rather than a literal name.
+  add_include() {
+    local rel="$1" guard="$2" hdr="$3" f="$SRC/$1"
+    if [ ! -f "$f" ]; then return 0; fi
+    if grep -q "^#include <${hdr}>" "$f"; then return 0; fi
+    sed -i "/^#define ${guard}$/a #include <${hdr}>" "$f"
+    if grep -q "^#include <${hdr}>" "$f"; then log "  + <${hdr}> -> $rel"; fi
   }
-  log "r${NDK_VERSION}: adding <cstdint> includes GCC 13+ no longer provides"
-  add_cstdint llvm/include/llvm/Support/Signals.h LLVM_SUPPORT_SIGNALS_H
+  add_include llvm/include/llvm/Support/Signals.h LLVM_SUPPORT_SIGNALS_H cstdint
+  # std::terminate is called from the demangler's headers and its .cpp files
+  # alike; Utility.h sits on all of their include paths. Match the guard by
+  # pattern -- the LLVM_ prefix came and went across these revisions.
+  add_include llvm/include/llvm/Demangle/Utility.h \
+              '\(LLVM_\)\?DEMANGLE_UTILITY_H' exception
+  add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
+              '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' exception
+  # sancov: createOrDie takes an ArrayRef<std::string>, and {{ClBlacklist}}
+  # copy-initializes a std::string from the cl::opt through an explicit ctor,
+  # which newer libc++ rejects ("chosen constructor is explicit in
+  # copy-initialization"). Name the value outright. Renamed to ClIgnorelist
+  # later, so handle both spellings.
+  _sancov="$SRC/llvm/tools/sancov/sancov.cpp"
+  if [ -f "$_sancov" ]; then
+    sed -i -e 's@createOrDie({{ClBlacklist}}@createOrDie({ClBlacklist.getValue()}@' \
+           -e 's@createOrDie({{ClIgnorelist}}@createOrDie({ClIgnorelist.getValue()}@' \
+           "$_sancov"
+    if grep -q 'createOrDie({Cl[A-Za-z]*\.getValue()}' "$_sancov"; then
+      log "  + sancov createOrDie explicit-ctor fix"
+    fi
+  fi
 fi
 
 # bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
