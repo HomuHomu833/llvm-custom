@@ -214,6 +214,9 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
               '\(LLVM_\)\?DEMANGLE_UTILITY_H' exception
   add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
               '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' exception
+  # std::error_code in the atom-based lld/Core, which LLVM 17 deleted -- so this
+  # one is r25-only rather than merely r25-first.
+  add_include lld/include/lld/Core/File.h LLD_CORE_FILE_H system_error
   # sancov: createOrDie takes an ArrayRef<std::string>, and {{ClBlacklist}}
   # copy-initializes a std::string from the cl::opt through an explicit ctor,
   # which newer libc++ rejects ("chosen constructor is explicit in

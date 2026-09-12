@@ -290,14 +290,17 @@ case "$TARGET" in
     done ;;
 esac
 # bolt_rt is a Linux-only runtime injected into the instrumented binary: it
-# includes <sys/mman.h> and calls mmap/madvise directly, none of which mingw
-# has. LLVM 16 gated the ExternalProject on the target OS, so r26 and later
-# never configure it; before that it is added unconditionally and the build
-# dies in hugify.cpp. Turn it off for every mingw target -- BOLT itself still
-# builds, only the injectable runtime is skipped, which is exactly what the
-# newer trees do here anyway.
+# includes <sys/mman.h> and its syscall wrappers use x86 "=a" asm constraints,
+# so on mingw it fails to compile (x86_64 on the header, arm64ec on the
+# constraint) and takes install.util down with it. LLVM 16 gated the
+# ExternalProject on the target OS, so r26 and later never configure it.
+#
+# CMake reported BOLT_BUILD_RUNTIME as "not used by the project" on LLVM 14, so
+# that spelling does not exist there; BOLT_ENABLE_RUNTIME is the name the newer
+# trees use. Pass both -- an unused one is only a warning -- and if neither
+# takes, bolt/CMakeLists.txt has to be patched instead.
 case "$TARGET" in
-  *-w64-mingw32) args+=(-DBOLT_BUILD_RUNTIME=OFF) ;;
+  *-w64-mingw32) args+=(-DBOLT_ENABLE_RUNTIME=OFF -DBOLT_BUILD_RUNTIME=OFF) ;;
 esac
 [ ${#EXTRA_CMAKE_FLAGS[@]} -gt 0 ] && args+=("${EXTRA_CMAKE_FLAGS[@]}")
 # GNU/Linux: zig's glibc 2.31 headers ship sys/rseq.h but not __rseq_offset/
