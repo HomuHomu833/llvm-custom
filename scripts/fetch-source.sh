@@ -242,6 +242,32 @@ if [ "${PLATFORM:-}" = bionic ]; then
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
+# windows: don't build bolt_rt, the runtime BOLT injects into instrumented
+# binaries. It includes <sys/mman.h> and its syscall wrappers use x86 "=a" asm
+# constraints, so mingw cannot compile it -- x86_64 trips on the header,
+# arm64ec on the constraint, and install.util follows them down.
+#
+# Before LLVM 16 the decision reads the *builder's* CPU, not the target:
+#
+#   set(BOLT_ENABLE_RUNTIME OFF)
+#   if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
+#     set(BOLT_ENABLE_RUNTIME ON)
+#   endif()
+#
+# which is always true on a GitHub runner however we are cross-compiling. It is
+# a plain set(), not a cached option(), so -DBOLT_ENABLE_RUNTIME=OFF is
+# silently overwritten -- flip the assignment instead. Everything guarded by it
+# (the ExternalProject, its install(CODE) and install-bolt_rt) is inside the
+# same if/endif, so nothing is left dangling. Newer trees gate on the target
+# and never set it here, where this is simply inert.
+if [ "${PLATFORM:-}" = windows ] && [ -f "$SRC/bolt/CMakeLists.txt" ]; then
+  sed -i 's@set(BOLT_ENABLE_RUNTIME ON)@set(BOLT_ENABLE_RUNTIME OFF)@' \
+    "$SRC/bolt/CMakeLists.txt"
+  if ! grep -q 'set(BOLT_ENABLE_RUNTIME ON)' "$SRC/bolt/CMakeLists.txt"; then
+    log "windows: bolt_rt disabled (BOLT_ENABLE_RUNTIME forced off)"
+  fi
+fi
+
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
 CLANG_VENDOR='$CLANG_VENDOR'
