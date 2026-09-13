@@ -234,6 +234,18 @@ if [ "${PLATFORM:-}" = bionic ]; then
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
+# Same block, same treatment for OpenBSD: LLVMRTDyldTLSSpace is defined with
+# initial-exec TLS and referenced from inline asm, and the link there ends in
+# "undefined symbol". Only x86_64 reaches it, and only from 14.0.6, which is
+# where the block was added. Guarding it costs llvm-rtdyld's TLS section
+# support, as it already does on Android.
+if [ "${PLATFORM:-}" = bsd ]; then
+  log "bsd: guarding llvm-rtdyld x86_64 ELF block on !__OpenBSD__"
+  sed -i -E '/^#if defined\(__x86_64__\) && defined\(__ELF__\)( && defined\(__linux__\))?$/ {
+    /&& !defined\(__OpenBSD__\)/! s/$/ \&\& !defined(__OpenBSD__)/
+  }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
+fi
+
 # bolt_rt, the runtime BOLT injects into instrumented binaries, is Linux-only:
 # it makes raw Linux syscalls and its osx variant builds -target
 # x86_64-apple-darwin, which zig rejects. LLVM 14 enables it off the *builder's*
