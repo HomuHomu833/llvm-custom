@@ -264,6 +264,21 @@ for _f in bolt/tools/driver/CMakeLists.txt bolt/tools/merge-fdata/CMakeLists.txt
   fi
 done
 
+# merge-fdata links with --emit-relocs on any Unix target, for a BOLT test we
+# never build, and zig's linker rejects the flag. Upstream gates this on
+# BOLT_INCLUDE_TESTS; the android fork does not, so LLVM_INCLUDE_TESTS=OFF does
+# not help and the condition has to go.
+case "${PLATFORM:-}" in
+  linux|bsd)
+    _mf="$SRC/bolt/tools/merge-fdata/CMakeLists.txt"
+    if [ -f "$_mf" ]; then
+      sed -i 's@^if (UNIX AND NOT APPLE)$@if (FALSE) # zig ld has no --emit-relocs@' "$_mf"
+      if grep -q 'zig ld has no' "$_mf"; then
+        log "${PLATFORM}: dropped merge-fdata --emit-relocs"
+      fi
+    fi ;;
+esac
+
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
 CLANG_VENDOR='$CLANG_VENDOR'
