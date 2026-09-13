@@ -242,10 +242,19 @@ if [ "${PLATFORM:-}" = bionic ]; then
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
-# windows: don't build bolt_rt, the runtime BOLT injects into instrumented
-# binaries. It includes <sys/mman.h> and its syscall wrappers use x86 "=a" asm
-# constraints, so mingw cannot compile it -- x86_64 trips on the header,
-# arm64ec on the constraint, and install.util follows them down.
+# Don't build bolt_rt, the runtime BOLT injects into instrumented binaries, for
+# targets whose OS it does not support. On mingw it includes <sys/mman.h> and
+# its syscall wrappers use x86 "=a" asm constraints, so x86_64 trips on the
+# header, arm64ec on the constraint, and install.util follows them down. On the
+# zig-built platforms its bolt_rt_instr_osx variant compiles with
+# -target x86_64-apple-darwin19.6.0, which zig rejects outright:
+#   error: unable to parse target query 'x86_64-apple-darwin19.6.0':
+#   UnknownOperatingSystem
+# (the hugify and instr variants do build there, but the osx one is
+# unconditional, so the runtime as a whole cannot be built).
+#
+# LLVM 16 gates this on the target OS and only builds the runtime for Linux, so
+# skip it for every non-Linux platform and leave bionic and linux alone.
 #
 # Before LLVM 16 the decision reads the *builder's* CPU, not the target:
 #
@@ -260,13 +269,16 @@ fi
 # (the ExternalProject, its install(CODE) and install-bolt_rt) is inside the
 # same if/endif, so nothing is left dangling. Newer trees gate on the target
 # and never set it here, where this is simply inert.
-if [ "${PLATFORM:-}" = windows ] && [ -f "$SRC/bolt/CMakeLists.txt" ]; then
-  sed -i 's@set(BOLT_ENABLE_RUNTIME ON)@set(BOLT_ENABLE_RUNTIME OFF)@' \
-    "$SRC/bolt/CMakeLists.txt"
-  if ! grep -q 'set(BOLT_ENABLE_RUNTIME ON)' "$SRC/bolt/CMakeLists.txt"; then
-    log "windows: bolt_rt disabled (BOLT_ENABLE_RUNTIME forced off)"
-  fi
-fi
+case "${PLATFORM:-}" in
+  windows|bsd|macos)
+    if [ -f "$SRC/bolt/CMakeLists.txt" ]; then
+      sed -i 's@set(BOLT_ENABLE_RUNTIME ON)@set(BOLT_ENABLE_RUNTIME OFF)@' \
+        "$SRC/bolt/CMakeLists.txt"
+      if ! grep -q 'set(BOLT_ENABLE_RUNTIME ON)' "$SRC/bolt/CMakeLists.txt"; then
+        log "${PLATFORM}: bolt_rt disabled (BOLT_ENABLE_RUNTIME forced off)"
+      fi
+    fi ;;
+esac
 
 # BOLT installs its binaries by bare name, so the install step cannot find them
 # wherever executables carry a suffix:

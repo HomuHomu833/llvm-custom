@@ -1,0 +1,13 @@
+diff --git a/llvm/lib/Support/Unix/Memory.inc b/llvm/lib/Support/Unix/Memory.inc
+index be88e7d..0815b6a 100644
+--- a/llvm/lib/Support/Unix/Memory.inc
++++ b/llvm/lib/Support/Unix/Memory.inc
+@@ -32,7 +32,7 @@
+ #if defined(__mips__)
+ #  if defined(__OpenBSD__)
+ #    include <mips64/sysarch.h>
+-#  elif !defined(__FreeBSD__)
++#  elif !defined(__FreeBSD__) && !defined(__NetBSD__)
+ #    include <sys/cachectl.h>
+ #  endif
+ #endif
