@@ -64,7 +64,7 @@ unpack() {
 # way out. Usage: fetch_unpack URL ARCHIVE [DEST]
 #
 # aria2c's own retries cannot see a truncated download. Endpoints that generate
-# archives on the fly -- gitiles' +archive, codeload -- stream them chunked with
+# archives on the fly (gitiles' +archive, codeload) stream them chunked with
 # no Content-Length (aria2 logs the size as "0B/0B"), so when the far end cuts
 # the stream short there is no expected size to compare against: aria2 prints
 # "(OK):download completed" and exits 0 on a 600KiB truncation of a 200MiB
@@ -177,18 +177,10 @@ apply_set() {
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_REV" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_REV" strict
 
-# Newer toolchains stopped providing includes that LLVM <= 14 relied on getting
-# transitively. GCC 13 (the ubuntu-24.04 host compiler) dropped <cstdint>, which
-# breaks the NATIVE host stage:
-#   Signals.h:119:24: error: 'uintptr_t' was not declared in this scope
-# llvm-mingw's libc++ splits <exception> into granular headers, which breaks the
-# demangler for every mingw target:
-#   Utility.h:40:9: error: no member named 'terminate' in namespace 'std'
-# Only r25 and older ship an LLVM predating the upstream fixes. Done with sed
-# rather than patches/ because these span several source revisions and a
-# patch that does not apply is a hard failure under apply_set's strict mode.
-# Not gated on PLATFORM -- every platform cross-compiles, so every platform
-# builds NATIVE.
+# LLVM <= 14 (r25 and older) relies on includes newer toolchains no longer pull
+# in transitively: GCC 13 dropped <cstdint>, llvm-mingw's libc++ splits
+# <exception> and <system_error> into granular headers. sed rather than
+# patches/, since these span both r25 source revisions.
 NDK_MAJOR=""
 case "$NDK_VERSION" in
   ''|*[!0-9]*) ;;
@@ -197,8 +189,8 @@ esac
 
 if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
   log "r${NDK_VERSION}: adding includes newer toolchains no longer provide"
-  # Insert after the include guard so it lands ahead of every other include.
-  # GUARD is a sed address, so it may be a pattern rather than a literal name.
+  # Insert after the include guard. GUARD is a sed address, so it may be a
+  # pattern, since the LLVM_ prefix comes and goes across these revisions.
   add_include() {
     local rel="$1" guard="$2" hdr="$3" f="$SRC/$1"
     if [ ! -f "$f" ]; then return 0; fi
@@ -209,12 +201,12 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
   add_include llvm/include/llvm/Support/Signals.h LLVM_SUPPORT_SIGNALS_H cstdint
   # std::terminate is called from the demangler's headers and its .cpp files
   # alike; Utility.h sits on all of their include paths. Match the guard by
-  # pattern -- the LLVM_ prefix came and went across these revisions.
+  # pattern, since the LLVM_ prefix came and went across these revisions.
   add_include llvm/include/llvm/Demangle/Utility.h \
               '\(LLVM_\)\?DEMANGLE_UTILITY_H' exception
   add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
               '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' exception
-  # std::error_code in the atom-based lld/Core, which LLVM 17 deleted -- so this
+  # std::error_code in the atom-based lld/Core, which LLVM 17 deleted, so this
   # one is r25-only rather than merely r25-first.
   add_include lld/include/lld/Core/File.h LLD_CORE_FILE_H system_error
   # sancov: createOrDie takes an ArrayRef<std::string>, and {{ClBlacklist}}
@@ -242,33 +234,11 @@ if [ "${PLATFORM:-}" = bionic ]; then
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
-# Don't build bolt_rt, the runtime BOLT injects into instrumented binaries, for
-# targets whose OS it does not support. On mingw it includes <sys/mman.h> and
-# its syscall wrappers use x86 "=a" asm constraints, so x86_64 trips on the
-# header, arm64ec on the constraint, and install.util follows them down. On the
-# zig-built platforms its bolt_rt_instr_osx variant compiles with
-# -target x86_64-apple-darwin19.6.0, which zig rejects outright:
-#   error: unable to parse target query 'x86_64-apple-darwin19.6.0':
-#   UnknownOperatingSystem
-# (the hugify and instr variants do build there, but the osx one is
-# unconditional, so the runtime as a whole cannot be built).
-#
-# LLVM 16 gates this on the target OS and only builds the runtime for Linux, so
-# skip it for every non-Linux platform and leave bionic and linux alone.
-#
-# Before LLVM 16 the decision reads the *builder's* CPU, not the target:
-#
-#   set(BOLT_ENABLE_RUNTIME OFF)
-#   if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
-#     set(BOLT_ENABLE_RUNTIME ON)
-#   endif()
-#
-# which is always true on a GitHub runner however we are cross-compiling. It is
-# a plain set(), not a cached option(), so -DBOLT_ENABLE_RUNTIME=OFF is
-# silently overwritten -- flip the assignment instead. Everything guarded by it
-# (the ExternalProject, its install(CODE) and install-bolt_rt) is inside the
-# same if/endif, so nothing is left dangling. Newer trees gate on the target
-# and never set it here, where this is simply inert.
+# bolt_rt, the runtime BOLT injects into instrumented binaries, is Linux-only:
+# it makes raw Linux syscalls and its osx variant builds -target
+# x86_64-apple-darwin, which zig rejects. LLVM 14 enables it off the *builder's*
+# CPU with a plain set(), so -DBOLT_ENABLE_RUNTIME=OFF is overwritten. Flip the
+# assignment instead. Everything it guards sits in the same if/endif.
 case "${PLATFORM:-}" in
   windows|bsd|macos)
     if [ -f "$SRC/bolt/CMakeLists.txt" ]; then
@@ -281,12 +251,9 @@ case "${PLATFORM:-}" in
 esac
 
 # BOLT installs its binaries by bare name, so the install step cannot find them
-# wherever executables carry a suffix:
-#   file INSTALL cannot find ".../bin/llvm-bolt": No such file or directory
-# Append CMAKE_EXECUTABLE_SUFFIX, which is empty on every other platform, so
-# this is safe to run unconditionally. Newer trees carry the same change as a
-# patch; LLVM 14 lists one binary more than they do (llvm-bolt-heatmap), which
-# matching the whole line rather than each name handles on its own.
+# where executables carry a suffix. CMAKE_EXECUTABLE_SUFFIX is empty elsewhere,
+# so this needs no platform gate; matching the whole line also covers
+# llvm-bolt-heatmap, which only LLVM 14 installs.
 for _f in bolt/tools/driver/CMakeLists.txt bolt/tools/merge-fdata/CMakeLists.txt; do
   if [ -f "$SRC/$_f" ]; then
     sed -i 's@^\([[:space:]]*\${CMAKE_BINARY_DIR}/bin/[A-Za-z0-9_-]\{1,\}\)$@\1${CMAKE_EXECUTABLE_SUFFIX}@' \
