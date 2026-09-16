@@ -17,17 +17,17 @@ on:
         default: "bolt;clang;clang-tools-extra;lld;polly"
         required: true
       pgo:
-        description: "Use the published PGO profile for this llvm revision:"
+        description: "Use published PGO profile"
         default: true
         required: false
         type: boolean
       mlgo:
-        description: "Embed the arm64 MLGO models where the target supports it:"
+        description: "Embed the arm64 MLGO models"
         default: true
         required: false
         type: boolean
       lto:
-        description: "ThinLTO; linux + windows only, matching llvm_android:"
+        description: "Use ThinLTO"
         default: false
         required: false
         type: boolean
