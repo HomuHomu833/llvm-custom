@@ -57,7 +57,7 @@ jobs:
         uses: easimon/maximize-build-space@v10
         with:
           root-reserve-mb: 5120
-          swap-size-mb: 5120
+          swap-size-mb: 16384
           remove-dotnet: true
           remove-android: true
           remove-haskell: true
@@ -90,6 +90,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Space before build
+        run: |
+          df -h / /mnt; echo; free -h; echo; swapon --show
+
       - name: Build LLVM
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llvm-builder:latest"
@@ -112,6 +116,10 @@ jobs:
             -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
             "$IMAGE" \
             bash -c 'scripts/fetch-source.sh && scripts/build.sh'
+
+      - name: Space after build
+        if: always()
+        run: df -h / /mnt; free -h
 
       - name: Package
         run: |
