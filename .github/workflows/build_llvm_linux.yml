@@ -26,6 +26,11 @@ on:
         default: true
         required: false
         type: boolean
+      lto:
+        description: "ThinLTO; linux + windows only, matching llvm_android:"
+        default: false
+        required: false
+        type: boolean
 
 permissions:
   contents: write
@@ -42,6 +47,7 @@ jobs:
       projects: ${{ inputs.projects }}
       pgo: ${{ inputs.pgo }}
       mlgo: ${{ inputs.mlgo }}
+      lto: ${{ inputs.lto }}
       # loongarch32-linux-gnu, loongarch32-linux-gnusf
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",

@@ -318,6 +318,37 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
   rm -f "$BUILD_DIR/mlgo-probe".*
 fi
 
+# --- LTO --------------------------------------------------------------------
+# Thin, and never on darwin -- matching llvm_android, whose RELEASE preset does
+# set lto for darwin but whose Stage2Builder then guards LLVM_ENABLE_LTO on
+# "not target_os.is_darwin" and drops it, so the mac toolchain they ship is not
+# LTO'd. That guard is ours for an independent reason: the cctools ld64 the
+# osxcross wrappers call is built without libLTO and would not take bitcode.
+LLVM_LTO="${LLVM_LTO:-OFF}"
+LINK_JOBS=1
+if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
+  log "LTO: not applied on macos, matching llvm_android"
+  LLVM_LTO=OFF
+fi
+if [ "$LLVM_LTO" != OFF ]; then
+  # ThinLTO defers codegen to link time, so a -mllvm flag only reaches the
+  # register allocator by way of the linker.
+  [ ${#MLGO_ARGS[@]} -gt 0 ] && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-mllvm,-regalloc-enable-advisor=release"
+  # Without a profile they don't rate link-time codegen worth its cost. Only on
+  # linux, which is where they apply it.
+  if [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
+    CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
+  fi
+  # llvm_android widens this to min(ncpu/2, 16) under LTO, but that is sized for
+  # their build machines. A GitHub runner is 4 vCPU / 16 GB, and lld's
+  # --thinlto-jobs already defaults to every hardware thread, so one ThinLTO link
+  # saturates the box on its own: a second concurrent link buys close to nothing
+  # and doubles peak RSS on a host where disk is already being juggled. Stay at
+  # one unless told otherwise.
+  LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
+  log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
+fi
+
 # --- vendor string ----------------------------------------------------------
 # llvm_android's shape, "Android (<build id>, <opts>, based on <release>)", with
 # our identity in the middle. "Android" stays: it names the distribution, and
@@ -330,7 +361,6 @@ fi
 # isn't one. That is also why "polly" and "bolt" are not in it -- we ship those
 # as a pass plugin and a tool, we don't build clang itself with them. clang
 # appends the separating space itself, see clang/lib/Basic/CMakeLists.txt.
-LLVM_LTO="${LLVM_LTO:-OFF}"
 VENDOR_OPTS=""
 if [ "$LLVM_LTO" != OFF ]; then VENDOR_OPTS="LTO"; fi
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}PGO"; fi
@@ -408,7 +438,7 @@ args=(
   -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF
   -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF
   -DLLVM_INSTALL_BINUTILS_SYMLINKS=ON -DLLVM_INSTALL_CCTOOLS_SYMLINKS=ON
-  -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_ENABLE_PIC=$LLVM_PIC
+  -DLLVM_PARALLEL_LINK_JOBS=$LINK_JOBS -DLLVM_ENABLE_PIC=$LLVM_PIC
   -DLLVM_ENABLE_LIBCXX=OFF -DLLVM_ENABLE_LLVM_LIBC=OFF
   -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_RTTI=OFF
   -DLLVM_ENABLE_LTO="$LLVM_LTO" -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_MODULES=OFF
