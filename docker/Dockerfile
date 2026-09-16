@@ -27,8 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # the osxcross wrappers invoke and the one that generates the PGO profile, and an
 # indexed profile is rejected by any reader older than the version that wrote it:
 # every tree from r28 on emits version 12, which 18 cannot read. 20 can, so macOS
-# keeps PGO instead of having build.sh's probe drop it. Note /usr/bin/cc stays
-# gcc via alternatives, so the NATIVE tblgen flag for LLVM < 16 is unaffected.
+# keeps PGO instead of having build.sh's probe drop it.
+#
+# cc and c++ are repointed at it too, so the NATIVE tblgen the LLVM < 16 branch
+# builds comes from the same toolchain as everything else instead of from gcc.
 #
 # Fetched with aria2 (no curl here) and kept ASCII-armored: apt reads .asc under
 # signed-by directly, so this needs no gnupg in the image.
@@ -47,7 +49,11 @@ RUN . /etc/os-release \
                update-alternatives --install "/usr/bin/$t" "$t" "/usr/bin/$t-${CLANG_VERSION}" 100; \
            fi; \
        done \
-    && clang --version | head -n1
+    && update-alternatives --install /usr/bin/cc  cc  "/usr/bin/clang-${CLANG_VERSION}"   100 \
+    && update-alternatives --install /usr/bin/c++ c++ "/usr/bin/clang++-${CLANG_VERSION}" 100 \
+    && clang --version | head -n1 \
+    && cc --version | head -n1 \
+    && c++ --version | head -n1
 
 # TensorFlow for MLGO, in its own venv at /opt/tf. The venv is not just tidiness:
 # llvm/CMakeLists.txt derives the AOT compiler as
