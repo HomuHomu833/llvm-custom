@@ -23,17 +23,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
-# clang from apt.llvm.org rather than noble's, which is 18. This is the compiler
-# the osxcross wrappers invoke and the one that generates the PGO profile, and an
-# indexed profile is rejected by any reader older than the version that wrote it:
-# every tree from r28 on emits version 12, which 18 cannot read. 20 can, so macOS
-# keeps PGO instead of having build.sh's probe drop it.
+# clang from apt.llvm.org rather than noble's 18, because the osxcross wrappers
+# invoke it and an indexed PGO profile is rejected by any reader older than the
+# version that wrote it: trees from r28 on emit version 12, which 18 can't read.
+# cc and c++ are repointed at it too, so the NATIVE tblgen that build.sh's
+# LLVM < 16 branch builds comes from the same toolchain as everything else.
 #
-# cc and c++ are repointed at it too, so the NATIVE tblgen the LLVM < 16 branch
-# builds comes from the same toolchain as everything else instead of from gcc.
-#
-# Fetched with aria2 (no curl here) and kept ASCII-armored: apt reads .asc under
-# signed-by directly, so this needs no gnupg in the image.
+# Fetched with aria2 (no curl here) and left ASCII-armored: apt reads .asc under
+# signed-by, so no gnupg is needed.
 ARG CLANG_VERSION=20
 RUN . /etc/os-release \
     && mkdir -p /etc/apt/keyrings \
@@ -55,17 +52,15 @@ RUN . /etc/os-release \
     && cc --version | head -n1 \
     && c++ --version | head -n1
 
-# TensorFlow for MLGO, in its own venv at /opt/tf. The venv is not just tidiness:
-# llvm/CMakeLists.txt derives the AOT compiler as
-# "${TENSORFLOW_AOT_PATH}/../../../../bin/saved_model_cli", so the package has to
-# sit four levels under a prefix that also holds bin/ -- which a venv guarantees
-# and a system dist-packages install does not. build.sh probes before using it,
-# so a wheel without a given backend just means that target builds without MLGO.
+# TensorFlow for MLGO, in a venv at /opt/tf -- not tidiness: llvm/CMakeLists.txt
+# derives the AOT compiler as "${TENSORFLOW_AOT_PATH}/../../../../bin/
+# saved_model_cli", so the package must sit four levels under a prefix that also
+# holds bin/, which a venv gives and dist-packages doesn't.
 #
-# tensorflow-cpu publishes x86_64 wheels only, so this is best-effort per host
-# arch the way llvm-mingw below is: elsewhere the venv simply doesn't exist and
-# build.sh's probe drops MLGO for every target. On x86_64 the asserts stay hard,
-# so a wheel missing the AOT pieces fails the image rather than 99 builds.
+# x86_64 wheels are the only ones published, so this is best-effort per host arch
+# like llvm-mingw below: elsewhere the venv is absent and build.sh's probe drops
+# MLGO. On x86_64 the asserts stay hard, so a wheel missing the AOT pieces fails
+# the image rather than 99 builds.
 ARG TENSORFLOW_VERSION=2.21.0
 RUN arch="$(uname -m)"; \
     if [ "$arch" = x86_64 ]; then \

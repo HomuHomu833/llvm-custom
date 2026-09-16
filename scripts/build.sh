@@ -42,29 +42,21 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 # --- PGO profile generation -------------------------------------------------
 # BUILD_PROFDATA=1 makes this a native instrumented build and training run
-# instead of a cross build, leaving $ROOTDIR/<llvm rev>.profdata.xz behind. It
-# sits here rather than in a workflow so it runs the same way under `docker run`
-# as it does in CI, and so the profile's shape is versioned with the build that
-# consumes it.
+# instead of a cross build, leaving $ROOTDIR/<llvm rev>.profdata.xz behind.
 #
-# No stage1: we are not bootstrapping a toolchain, only instrumenting one well
-# enough to count how often clang runs each function, so the image's own
-# compiler builds it. One profile serves every target built from this tree --
-# a frontend profile keys on function name and CFG hash and carries no target
-# codegen, which is how llvm_android points one profdata at linux, at its mingw
-# cross build and at a universal darwin build at once.
+# No stage1: this instruments a compiler to count how often clang runs each
+# function, it doesn't bootstrap one. A frontend profile keys on function name
+# and CFG hash and carries no target codegen, so one profile per tree serves
+# every target built from it.
 if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   : "${LLVM_REV:?set LLVM_REV (run fetch-source.sh first)}"
   PROF_BUILD="${PROF_BUILD:-$ROOTDIR/instr}"
   SRC="${SRC:-$ROOTDIR/llvm-project}"
-  # Host compiler defaults to the NDK's own clang, not the image's. The raw
-  # profile format is matched *exactly* -- RawInstrProfReader rejects a mismatch
-  # in either direction -- and the raw version is written by the host compiler's
-  # profile runtime but read by this tree's llvm-profdata. The NDK ships the same
-  # LLVM release as the tree, so it matches by construction; the image's clang
-  # only lines up with the newest trees (raw 10 covers r28+, while r25/r26 want 8
-  # and r27 wants 9), and carrying three clangs in the image to cover that would
-  # weigh on every one of the cross-build jobs that never generate a profile.
+  # The NDK's clang, not the image's: the raw profile is written by the host
+  # compiler's runtime and read by this tree's llvm-profdata, and
+  # RawInstrProfReader wants an exact version match. The NDK is the same LLVM
+  # release as the tree, so it matches by construction (raw 8 for r25/r26, 9 for
+  # r27, 10 from r28 on -- the image clang only fits the last group).
   _ndk_clang="${NDK_DIR:-/nonexistent}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
   if [ -z "${PROF_CC:-}" ] && [ -x "$_ndk_clang" ]; then
     PROF_CC="$_ndk_clang"
@@ -257,18 +249,12 @@ case "${LLVM_VERSION%%.*}" in
 esac
 
 # --- PGO usability ----------------------------------------------------------
-# The profile is written by llvm-profdata from the tree being built, but it is
-# *read* by whichever cross compiler builds that tree, and those are four
-# unrelated toolchains at four different LLVM versions. An indexed profile
-# carries a format version and a reader rejects anything newer than its own, so
-# the pairing is not always valid: the image's apt clang, which the osxcross
-# wrappers invoke, tops out at version 11, while every tree from r28 on emits
-# version 12.
-#
-# Rather than keep a version table in step with four toolchains, ask the actual
-# compiler. Two probes, so an unrelated compile failure doesn't quietly cost us
-# the profile: PGO is dropped only when the plain compile works and adding the
-# profile is what breaks it.
+# The profile is read by whichever cross compiler builds the tree -- four
+# unrelated toolchains at four LLVM versions -- and an indexed profile is
+# rejected by any reader older than the version that wrote it. Ask the compiler
+# instead of keeping a version table in step with all four. Two probes, so an
+# unrelated compile failure doesn't quietly cost us the profile: PGO is dropped
+# only when the plain compile works and adding the profile breaks it.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   mkdir -p "$BUILD_DIR"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/pgo-probe.c"
@@ -282,18 +268,15 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
 fi
 
 # --- MLGO -------------------------------------------------------------------
-# llvm/CMakeLists.txt turns the SavedModel into an object file for *this* target
-# (TensorFlowCompile.cmake passes --target_triple $LLVM_HOST_TRIPLE) and then
-# add_subdirectory()s TensorFlow's xla_aot_runtime_src, so its Eigen-heavy C++
-# has to cross-compile for the target too. Two gates our target list can't
-# predict: which backends the installed wheel was built with (each sits behind a
-# TF_LLVM_<arch>_AVAILABLE) and whether that runtime survives the target's
-# endianness and SIMD assumptions. So probe with a real AOT compile rather than
-# hardcoding a list -- cmake has no graceful path, a failing tf_compile fails the
-# whole build, and a target that can't do MLGO should still produce a toolchain.
+# The model is AOT-compiled for this target and TensorFlow's xla_aot_runtime_src
+# is cross-built alongside it, so two things decide whether a target can do MLGO:
+# which backends the installed wheel carries, and whether that Eigen-heavy
+# runtime survives the target's endianness and SIMD. Neither is predictable from
+# a target list, and a failing tf_compile fails the whole build, so probe with a
+# real AOT compile and let a target that can't do it still ship a toolchain.
 MLGO_ARGS=()
-# The image keeps tensorflow in a venv at /opt/tf; ask it where the package
-# landed rather than hardcoding a python version into the path.
+# tensorflow lives in a venv at /opt/tf; ask it where, rather than hardcoding a
+# python version into the path.
 TENSORFLOW_AOT_PATH="${TENSORFLOW_AOT_PATH:-$(/opt/tf/bin/python -c \
   'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))' 2>/dev/null || true)}"
 if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_runtime_src" ]; then
@@ -319,11 +302,10 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
 fi
 
 # --- LTO --------------------------------------------------------------------
-# Thin, and never on darwin -- matching llvm_android, whose RELEASE preset does
-# set lto for darwin but whose Stage2Builder then guards LLVM_ENABLE_LTO on
-# "not target_os.is_darwin" and drops it, so the mac toolchain they ship is not
-# LTO'd. That guard is ours for an independent reason: the cctools ld64 the
-# osxcross wrappers call is built without libLTO and would not take bitcode.
+# Thin, and never on darwin. llvm_android's RELEASE preset sets lto for darwin
+# but Stage2Builder guards LLVM_ENABLE_LTO on "not target_os.is_darwin" and drops
+# it, so the mac toolchain they ship isn't LTO'd. The same guard suits us: the
+# cctools ld64 osxcross calls is built without libLTO and won't take bitcode.
 LLVM_LTO="${LLVM_LTO:-OFF}"
 LINK_JOBS=1
 if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
@@ -334,33 +316,27 @@ if [ "$LLVM_LTO" != OFF ]; then
   # ThinLTO defers codegen to link time, so a -mllvm flag only reaches the
   # register allocator by way of the linker.
   [ ${#MLGO_ARGS[@]} -gt 0 ] && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-mllvm,-regalloc-enable-advisor=release"
-  # Without a profile they don't rate link-time codegen worth its cost. Only on
-  # linux, which is where they apply it.
+  # Unprofiled, they don't rate link-time codegen worth its cost. Linux only,
+  # which is where they apply it.
   if [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
     CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
   fi
-  # llvm_android widens this to min(ncpu/2, 16) under LTO, but that is sized for
-  # their build machines. A GitHub runner is 4 vCPU / 16 GB, and lld's
-  # --thinlto-jobs already defaults to every hardware thread, so one ThinLTO link
-  # saturates the box on its own: a second concurrent link buys close to nothing
-  # and doubles peak RSS on a host where disk is already being juggled. Stay at
-  # one unless told otherwise.
+  # They widen this to min(ncpu/2, 16), sized for their build machines. On a
+  # 4-vCPU runner lld's --thinlto-jobs already uses every thread, so one link
+  # saturates the box and a second only doubles peak RSS.
   LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
 
 # --- vendor string ----------------------------------------------------------
 # llvm_android's shape, "Android (<build id>, <opts>, based on <release>)", with
-# our identity in the middle. "Android" stays: it names the distribution, and
-# these are NDK toolchains built from that llvm_android drop. The build id is
-# ours -- the Actions run id, which pins the commit, the flags and the projects
-# behind the binary -- where copying Google's would name a build that isn't this
-# one. <opts> is derived from the settings below rather than written by hand, so
-# it can't advertise an optimization we didn't apply: it names the optimization
-# pipeline this binary went through, nothing else, and stays absent while there
-# isn't one. That is also why "polly" and "bolt" are not in it -- we ship those
-# as a pass plugin and a tool, we don't build clang itself with them. clang
-# appends the separating space itself, see clang/lib/Basic/CMakeLists.txt.
+# our identity in it. "Android" names the distribution and stays. The build id is
+# the Actions run id, which pins the commit, flags and projects behind the
+# binary; Google's would name a build that isn't this one. <opts> is derived from
+# the settings above so it can't advertise work we didn't do -- which is also why
+# polly and bolt aren't in it, being a pass plugin and a tool rather than
+# something clang was built with. clang adds the trailing space itself, see
+# clang/lib/Basic/CMakeLists.txt.
 VENDOR_OPTS=""
 if [ "$LLVM_LTO" != OFF ]; then VENDOR_OPTS="LTO"; fi
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}PGO"; fi

@@ -296,13 +296,10 @@ esac
 
 # --- PGO profile ------------------------------------------------------------
 # One profile per llvm-project tree, keyed by $LLVM_REV and shared by every
-# target built from that tree. A frontend profile carries no target codegen --
-# it keys on function name and CFG hash -- which is how llvm_android points a
-# single profdata at linux, at its mingw cross build and at a universal darwin
-# build at once. A missing asset means nobody has profiled this tree yet, which
-# is not an error: the build just runs without PGO.
-# Seeded from the environment so an explicitly supplied profile survives the
-# round-trip through .build-env instead of being blanked by the lookup below.
+# target built from it (see build.sh's BUILD_PROFDATA for why one covers all).
+# A missing asset just means nobody has profiled this tree yet; build without.
+# Seeded from the environment so a caller-supplied profile survives the
+# round-trip through .build-env rather than being blanked by the lookup.
 LLVM_PROFDATA_FILE="${LLVM_PROFDATA_FILE:-}"
 if [ -z "$LLVM_PROFDATA_FILE" ] && [ "${ENABLE_PGO:-1}" = 1 ] && [ -n "${PGO_URL_BASE:-}" ]; then
   _pd="$ROOTDIR/$LLVM_REV.profdata"
@@ -329,11 +326,10 @@ if [ -z "$LLVM_PROFDATA_FILE" ] && [ "${ENABLE_PGO:-1}" = 1 ] && [ -n "${PGO_URL
 fi
 
 # --- MLGO models ------------------------------------------------------------
-# The arm64 models, matching what llvm_android embeds in the toolchain it ships
-# ("Embed ARM64 models for optimizing ARM64 AOSP / NDK"). The model is picked
-# for the code clang emits, not for the host it runs on, so arm64 is the right
-# choice on every one of our hosts. Whether a given host can AOT-compile them is
-# build.sh's probe to answer.
+# The arm64 models, as llvm_android embeds in the toolchain it ships ("Embed
+# ARM64 models for optimizing ARM64 AOSP / NDK"): the model is chosen for the
+# code clang emits, not the host it runs on, so arm64 fits every host we build.
+# Whether a host can AOT-compile them is build.sh's probe to answer.
 MLGO_DIR="${MLGO_DIR:-}"
 if [ -z "$MLGO_DIR" ] && [ "${ENABLE_MLGO:-1}" = 1 ]; then
   _mb="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/mlgo-models/arm64"
