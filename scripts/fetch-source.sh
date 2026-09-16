@@ -10,6 +10,9 @@
 #   PATCHSET      optional extra patch dir under patches/ (e.g. musl); overrides
 #                 the PLATFORM-based default
 #   ROOTDIR       work dir (default: cwd)
+#   ENABLE_PGO    1 (default) looks for a published profile for this llvm rev
+#   PGO_URL_BASE  base URL the profile assets live under; without it PGO is off
+#   ENABLE_MLGO   1 (default) downloads the arm64 MLGO models
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
@@ -291,10 +294,64 @@ case "${PLATFORM:-}" in
     fi ;;
 esac
 
+# --- PGO profile ------------------------------------------------------------
+# One profile per llvm-project tree, keyed by $LLVM_REV and shared by every
+# target built from that tree. A frontend profile carries no target codegen --
+# it keys on function name and CFG hash -- which is how llvm_android points a
+# single profdata at linux, at its mingw cross build and at a universal darwin
+# build at once. A missing asset means nobody has profiled this tree yet, which
+# is not an error: the build just runs without PGO.
+# Seeded from the environment so an explicitly supplied profile survives the
+# round-trip through .build-env instead of being blanked by the lookup below.
+LLVM_PROFDATA_FILE="${LLVM_PROFDATA_FILE:-}"
+if [ -z "$LLVM_PROFDATA_FILE" ] && [ "${ENABLE_PGO:-1}" = 1 ] && [ -n "${PGO_URL_BASE:-}" ]; then
+  _pd="$ROOTDIR/$LLVM_REV.profdata"
+  if [ ! -f "$_pd" ]; then
+    log "Looking for a PGO profile for $LLVM_REV"
+    # One attempt, deliberately not the retrying fetch(): a 404 here is the
+    # expected "not profiled yet" answer, not a transient error worth 5 retries.
+    aria2c --console-log-level=error --check-certificate=false --max-tries=1 \
+           --connect-timeout=15 --allow-overwrite=true --auto-file-renaming=false \
+           --dir="$ROOTDIR" -o "$LLVM_REV.profdata.xz" \
+           "$PGO_URL_BASE/$LLVM_REV.profdata.xz" >/dev/null 2>&1 || true
+    if [ -s "$ROOTDIR/$LLVM_REV.profdata.xz" ]; then
+      xz -df "$ROOTDIR/$LLVM_REV.profdata.xz"
+    else
+      rm -f "$ROOTDIR/$LLVM_REV.profdata.xz"
+    fi
+  fi
+  if [ -f "$_pd" ]; then
+    LLVM_PROFDATA_FILE="$_pd"
+    log "PGO: using $(basename "$_pd")"
+  else
+    log "PGO: no profile published for $LLVM_REV, building without"
+  fi
+fi
+
+# --- MLGO models ------------------------------------------------------------
+# The arm64 models, matching what llvm_android embeds in the toolchain it ships
+# ("Embed ARM64 models for optimizing ARM64 AOSP / NDK"). The model is picked
+# for the code clang emits, not for the host it runs on, so arm64 is the right
+# choice on every one of our hosts. Whether a given host can AOT-compile them is
+# build.sh's probe to answer.
+MLGO_DIR="${MLGO_DIR:-}"
+if [ -z "$MLGO_DIR" ] && [ "${ENABLE_MLGO:-1}" = 1 ]; then
+  _mb="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/mlgo-models/arm64"
+  MLGO_DIR="$ROOTDIR/mlgo"
+  for _m in inlining-Oz-chromium regalloc-evict-aosp; do
+    [ -f "$MLGO_DIR/$_m/saved_model.pb" ] && continue
+    log "Fetching MLGO model $_m"
+    fetch_unpack "$_mb/$_m.tar.gz" "$ROOTDIR/$_m.tar.gz" "$MLGO_DIR/$_m"
+  done
+fi
+
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
+LLVM_REV=$LLVM_REV
 CLANG_RELEASE=$CLANG_RELEASE
 LLVM_TARGETS='$LLVM_TARGETS'
+LLVM_PROFDATA_FILE='$LLVM_PROFDATA_FILE'
+MLGO_DIR='$MLGO_DIR'
 SRC=$SRC
 NDK_DIR=$NDK_DIR
 EOF

@@ -25,6 +25,16 @@ on:
       projects:
         required: true
         type: string
+      pgo:
+        description: "use the published PGO profile for this llvm revision"
+        required: false
+        type: boolean
+        default: true
+      mlgo:
+        description: "embed the arm64 MLGO models where the target supports it"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -89,7 +99,10 @@ jobs:
             -e PROJECTS='${{ inputs.projects }}' \
             -e ROOTDIR=/work \
             -e LLVM_BUILD_ID='${{ github.run_id }}' \
-            -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository }}' \
+            -e ENABLE_PGO='${{ inputs.pgo && 1 || 0 }}' \
+            -e ENABLE_MLGO='${{ inputs.mlgo && 1 || 0 }}' \
+            -e PGO_URL_BASE='https://github.com/${{ github.repository }}/releases/download/profdata' \
+            -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository }} ${{ github.sha }}' \
             -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
             "$IMAGE" \
             bash -c 'scripts/fetch-source.sh && scripts/build.sh'

@@ -18,10 +18,23 @@ ARG MACOS_SDK_VERSION=26.1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates aria2 xz-utils unzip git make cmake ninja-build \
-        build-essential patchelf file tree python3 zlib1g-dev libzstd-dev \
+        build-essential patchelf file tree python3 python3-venv zlib1g-dev libzstd-dev \
         clang lld libssl-dev libxml2-dev liblzma-dev libbz2-dev uuid-dev \
         cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
+
+# TensorFlow for MLGO, in its own venv at /opt/tf. The venv is not just tidiness:
+# llvm/CMakeLists.txt derives the AOT compiler as
+# "${TENSORFLOW_AOT_PATH}/../../../../bin/saved_model_cli", so the package has to
+# sit four levels under a prefix that also holds bin/ -- which a venv guarantees
+# and a system dist-packages install does not. build.sh probes before using it,
+# so a wheel without a given backend just means that target builds without MLGO.
+ARG TENSORFLOW_VERSION=2.20.0
+RUN python3 -m venv /opt/tf \
+    && /opt/tf/bin/pip install --no-cache-dir "tensorflow-cpu==${TENSORFLOW_VERSION}" \
+    && find /opt/tf -name '__pycache__' -type d -prune -exec rm -rf {} + \
+    && test -d "$(/opt/tf/bin/python -c 'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))')/xla_aot_runtime_src" \
+    && test -x /opt/tf/bin/saved_model_cli
 
 # fetch: download with retries, re-running aria2c on any failure so transient
 # GitHub errors recover. The build scripts define an identical helper for

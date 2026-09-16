@@ -17,10 +17,13 @@
 #   LLVM_LTO           LLVM_ENABLE_LTO (default: OFF); any other value lands in
 #                      the vendor string as LTO
 #   LLVM_PROFDATA_FILE optional PGO profile; its presence lands as PGO
+#   TENSORFLOW_AOT_PATH  tensorflow pip dir; with MLGO_DIR it enables MLGO for
+#                      targets whose triple the AOT compiler accepts
 #   CLANG_VENDOR       overrides the composed vendor string outright
 #
 # Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
-# plus LLVM_TARGETS and the CLANG_RELEASE the vendor string is "based on".
+# LLVM_TARGETS, the CLANG_RELEASE the vendor string is "based on", and the
+# resolved LLVM_PROFDATA_FILE / MLGO_DIR.
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
@@ -193,6 +196,43 @@ case "${LLVM_VERSION%%.*}" in
        -DCROSS_TOOLCHAIN_FLAGS_NATIVE="-DCMAKE_C_COMPILER=/usr/bin/cc;-DCMAKE_CXX_COMPILER=/usr/bin/c++" ) ;;
 esac
 
+# --- MLGO -------------------------------------------------------------------
+# llvm/CMakeLists.txt turns the SavedModel into an object file for *this* target
+# (TensorFlowCompile.cmake passes --target_triple $LLVM_HOST_TRIPLE) and then
+# add_subdirectory()s TensorFlow's xla_aot_runtime_src, so its Eigen-heavy C++
+# has to cross-compile for the target too. Two gates our target list can't
+# predict: which backends the installed wheel was built with (each sits behind a
+# TF_LLVM_<arch>_AVAILABLE) and whether that runtime survives the target's
+# endianness and SIMD assumptions. So probe with a real AOT compile rather than
+# hardcoding a list -- cmake has no graceful path, a failing tf_compile fails the
+# whole build, and a target that can't do MLGO should still produce a toolchain.
+MLGO_ARGS=()
+# The image keeps tensorflow in a venv at /opt/tf; ask it where the package
+# landed rather than hardcoding a python version into the path.
+TENSORFLOW_AOT_PATH="${TENSORFLOW_AOT_PATH:-$(/opt/tf/bin/python -c \
+  'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))' 2>/dev/null || true)}"
+if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_runtime_src" ]; then
+  mkdir -p "$BUILD_DIR"
+  _sm="$(cd "$TENSORFLOW_AOT_PATH/../../../.." && pwd)/bin/saved_model_cli"
+  if [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
+       --dir "$MLGO_DIR/inlining-Oz-chromium" --tag_set serve \
+       --signature_def_key action --output_prefix "$BUILD_DIR/mlgo-probe" \
+       --cpp_class ProbeModel --target_triple "$TRIPLE" >/dev/null 2>&1; then
+    log "MLGO: $TRIPLE accepted by the AOT compiler"
+    MLGO_ARGS=(
+      -DTENSORFLOW_AOT_PATH="$TENSORFLOW_AOT_PATH"
+      -DLLVM_INLINER_MODEL_PATH="$MLGO_DIR/inlining-Oz-chromium"
+      -DLLVM_RAEVICT_MODEL_PATH="$MLGO_DIR/regalloc-evict-aosp"
+      # only set under MLGO: TensorFlowCompile reads it for --target_triple, and
+      # changing it unconditionally would move every other target's host triple.
+      -DLLVM_HOST_TRIPLE="$TRIPLE"
+    )
+  else
+    log "MLGO: $TRIPLE not supported by the AOT compiler, building without"
+  fi
+  rm -f "$BUILD_DIR/mlgo-probe".*
+fi
+
 # --- vendor string ----------------------------------------------------------
 # llvm_android's shape, "Android (<build id>, <opts>, based on <release>)", with
 # our identity in the middle. "Android" stays: it names the distribution, and
@@ -209,6 +249,7 @@ LLVM_LTO="${LLVM_LTO:-OFF}"
 VENDOR_OPTS=""
 if [ "$LLVM_LTO" != OFF ]; then VENDOR_OPTS="LTO"; fi
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}PGO"; fi
+if [ ${#MLGO_ARGS[@]} -gt 0 ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}MLGO"; fi
 CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }${VENDOR_OPTS:+$VENDOR_OPTS, }based on ${CLANG_RELEASE:-unknown})}"
 log "Vendor: $CLANG_VENDOR"
 
@@ -298,11 +339,21 @@ args+=(
   -DZLIB_LIBRARY="$INSTALL_DIR/lib/libz.a" -DZLIB_INCLUDE_DIR="$INSTALL_DIR/include"
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
+# A profile generated from one tree still misses functions that differ per
+# target -- #ifdef'd code, target-specific TableGen output -- so quiet the two
+# warnings that reports. Added here, after zlib/zstd have already been built
+# with CROSS_CFLAGS, so only the LLVM configure sees them. llvm_android
+# suppresses exactly this pair.
+if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
+  _pgo_w=" -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
+  CROSS_CFLAGS="$CROSS_CFLAGS$_pgo_w"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS$_pgo_w"
+fi
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CXXFLAGS")
 # pass CMAKE_OBJCOPY only when the toolchain has one (empty on macos).
 [ -n "$CROSS_OBJCOPY" ] && args+=(-DCMAKE_OBJCOPY="$CROSS_OBJCOPY")
 # the vendor string reports PGO off the same variable, so it has to reach cmake.
 [ -n "${LLVM_PROFDATA_FILE:-}" ] && args+=(-DLLVM_PROFDATA_FILE="$LLVM_PROFDATA_FILE")
+[ ${#MLGO_ARGS[@]} -gt 0 ] && args+=("${MLGO_ARGS[@]}")
 # arm64ec: llvm-mingw skips compiler-rt for EC and builds the aarch64 builtins
 # -marm64x, so LLVM's PURE_WINDOWS probes find __ashldi3 and friends but the
 # EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT's

@@ -16,6 +16,16 @@ on:
         # bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
         default: "bolt;clang;clang-tools-extra;lld;polly"
         required: true
+      pgo:
+        description: "Use the published PGO profile for this llvm revision:"
+        default: true
+        required: false
+        type: boolean
+      mlgo:
+        description: "Embed the arm64 MLGO models where the target supports it:"
+        default: true
+        required: false
+        type: boolean
 
 permissions:
   contents: write
@@ -30,6 +40,8 @@ jobs:
       version: ${{ inputs.version }}
       revision: ${{ inputs.revision }}
       projects: ${{ inputs.projects }}
+      pgo: ${{ inputs.pgo }}
+      mlgo: ${{ inputs.mlgo }}
       targets: >-
         ["aarch64-w64-mingw32", "i686-w64-mingw32", "x86_64-w64-mingw32",
          "armv7-w64-mingw32", "arm64ec-w64-mingw32"]
