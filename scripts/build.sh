@@ -57,13 +57,28 @@ if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   : "${LLVM_REV:?set LLVM_REV (run fetch-source.sh first)}"
   PROF_BUILD="${PROF_BUILD:-$ROOTDIR/instr}"
   SRC="${SRC:-$ROOTDIR/llvm-project}"
-  log "Instrumented build for $LLVM_REV (LLVM ${LLVM_VERSION:-?})"
+  # Host compiler defaults to the NDK's own clang, not the image's. The raw
+  # profile format is matched *exactly* -- RawInstrProfReader rejects a mismatch
+  # in either direction -- and the raw version is written by the host compiler's
+  # profile runtime but read by this tree's llvm-profdata. The NDK ships the same
+  # LLVM release as the tree, so it matches by construction; the image's clang
+  # only lines up with the newest trees (raw 10 covers r28+, while r25/r26 want 8
+  # and r27 wants 9), and carrying three clangs in the image to cover that would
+  # weigh on every one of the cross-build jobs that never generate a profile.
+  _ndk_clang="${NDK_DIR:-/nonexistent}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+  if [ -z "${PROF_CC:-}" ] && [ -x "$_ndk_clang" ]; then
+    PROF_CC="$_ndk_clang"
+  fi
+  PROF_CC="${PROF_CC:-clang}"
+  # handles both spellings: .../bin/clang -> clang++, and clang-20 -> clang++-20
+  PROF_CXX="${PROF_CXX:-$(echo "$PROF_CC" | sed -E 's@clang(-[0-9]+)?$@clang++\1@')}"
+  log "Instrumented build for $LLVM_REV (LLVM ${LLVM_VERSION:-?}) with $PROF_CC"
   # LLVM_PROFDATA is the merge tool, not a build input, so pointing it into this
   # tree is fine: it only has to exist by the time the merge step runs, and being
   # the same revision as the instrumentation keeps the profraw format readable.
   cmake -S "$SRC/llvm" -B "$PROF_BUILD" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER="${PROF_CC:-clang}" -DCMAKE_CXX_COMPILER="${PROF_CXX:-clang++}" \
+    -DCMAKE_C_COMPILER="$PROF_CC" -DCMAKE_CXX_COMPILER="$PROF_CXX" \
     -DLLVM_ENABLE_PROJECTS=clang \
     -DLLVM_TARGETS_TO_BUILD="${LLVM_TARGETS:-AArch64;ARM;BPF;RISCV;WebAssembly;X86}" \
     -DLLVM_BUILD_INSTRUMENTED=ON \

@@ -19,9 +19,35 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates aria2 xz-utils unzip git make cmake ninja-build \
         build-essential patchelf file tree python3 python3-venv zlib1g-dev libzstd-dev \
-        clang lld libssl-dev libxml2-dev liblzma-dev libbz2-dev uuid-dev \
+        libssl-dev libxml2-dev liblzma-dev libbz2-dev uuid-dev \
         cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
+
+# clang from apt.llvm.org rather than noble's, which is 18. This is the compiler
+# the osxcross wrappers invoke and the one that generates the PGO profile, and an
+# indexed profile is rejected by any reader older than the version that wrote it:
+# every tree from r28 on emits version 12, which 18 cannot read. 20 can, so macOS
+# keeps PGO instead of having build.sh's probe drop it. Note /usr/bin/cc stays
+# gcc via alternatives, so the NATIVE tblgen flag for LLVM < 16 is unaffected.
+#
+# Fetched with aria2 (no curl here) and kept ASCII-armored: apt reads .asc under
+# signed-by directly, so this needs no gnupg in the image.
+ARG CLANG_VERSION=20
+RUN . /etc/os-release \
+    && mkdir -p /etc/apt/keyrings \
+    && aria2c --console-log-level=error --check-certificate=false --max-tries=5 \
+        --dir=/etc/apt/keyrings -o llvm.asc "https://apt.llvm.org/llvm-snapshot.gpg.key" \
+    && echo "deb [signed-by=/etc/apt/keyrings/llvm.asc] http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${CLANG_VERSION} main" \
+        > /etc/apt/sources.list.d/llvm.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        "clang-${CLANG_VERSION}" "lld-${CLANG_VERSION}" \
+    && rm -rf /var/lib/apt/lists/* \
+    && for t in clang clang++ lld ld.lld; do \
+           if [ -x "/usr/bin/$t-${CLANG_VERSION}" ]; then \
+               update-alternatives --install "/usr/bin/$t" "$t" "/usr/bin/$t-${CLANG_VERSION}" 100; \
+           fi; \
+       done \
+    && clang --version | head -n1
 
 # TensorFlow for MLGO, in its own venv at /opt/tf. The venv is not just tidiness:
 # llvm/CMakeLists.txt derives the AOT compiler as
