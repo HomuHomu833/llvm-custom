@@ -10,8 +10,8 @@
 #     bash -c 'scripts/fetch-source.sh && scripts/build.sh'
 FROM ubuntu:24.04
 
-ARG ZIG_VERSION=0.17.0-dev.1978+c961124d9
-ARG LLVM_MINGW_VERSION=20260826
+ARG ZIG_VERSION=0.17.0-dev.2131+d08989840
+ARG LLVM_MINGW_VERSION=20260908
 ARG REPO_OWNER=HomuHomu833
 ARG MACOS_SDK_VERSION=26.1
 
@@ -29,12 +29,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # sit four levels under a prefix that also holds bin/ -- which a venv guarantees
 # and a system dist-packages install does not. build.sh probes before using it,
 # so a wheel without a given backend just means that target builds without MLGO.
-ARG TENSORFLOW_VERSION=2.20.0
-RUN python3 -m venv /opt/tf \
-    && /opt/tf/bin/pip install --no-cache-dir "tensorflow-cpu==${TENSORFLOW_VERSION}" \
-    && find /opt/tf -name '__pycache__' -type d -prune -exec rm -rf {} + \
-    && test -d "$(/opt/tf/bin/python -c 'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))')/xla_aot_runtime_src" \
-    && test -x /opt/tf/bin/saved_model_cli
+#
+# tensorflow-cpu publishes x86_64 wheels only, so this is best-effort per host
+# arch the way llvm-mingw below is: elsewhere the venv simply doesn't exist and
+# build.sh's probe drops MLGO for every target. On x86_64 the asserts stay hard,
+# so a wheel missing the AOT pieces fails the image rather than 99 builds.
+ARG TENSORFLOW_VERSION=2.21.0
+RUN arch="$(uname -m)"; \
+    if [ "$arch" = x86_64 ]; then \
+        python3 -m venv /opt/tf \
+        && /opt/tf/bin/pip install --no-cache-dir "tensorflow-cpu==${TENSORFLOW_VERSION}" \
+        && find /opt/tf -name '__pycache__' -type d -prune -exec rm -rf {} + \
+        && test -d "$(/opt/tf/bin/python -c 'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))')/xla_aot_runtime_src" \
+        && test -x /opt/tf/bin/saved_model_cli; \
+    else \
+        echo "WARNING: tensorflow-cpu has no $arch wheel; MLGO will be unavailable on this host"; \
+    fi
 
 # fetch: download with retries, re-running aria2c on any failure so transient
 # GitHub errors recover. The build scripts define an identical helper for
