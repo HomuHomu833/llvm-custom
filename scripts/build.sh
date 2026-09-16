@@ -13,9 +13,14 @@
 #   ROOTDIR     work dir (default: cwd)
 #   ANDROID_API bionic API level (default: 24, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
+#   LLVM_BUILD_ID      build id for the vendor string (CI passes the Actions run id)
+#   LLVM_LTO           LLVM_ENABLE_LTO (default: OFF); any other value lands in
+#                      the vendor string as LTO
+#   LLVM_PROFDATA_FILE optional PGO profile; its presence lands as PGO
+#   CLANG_VENDOR       overrides the composed vendor string outright
 #
 # Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
-# plus CLANG_VENDOR and LLVM_TARGETS resolved from the NDK and llvm_android.
+# plus LLVM_TARGETS and the CLANG_RELEASE the vendor string is "based on".
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
@@ -188,6 +193,25 @@ case "${LLVM_VERSION%%.*}" in
        -DCROSS_TOOLCHAIN_FLAGS_NATIVE="-DCMAKE_C_COMPILER=/usr/bin/cc;-DCMAKE_CXX_COMPILER=/usr/bin/c++" ) ;;
 esac
 
+# --- vendor string ----------------------------------------------------------
+# llvm_android's shape, "Android (<build id>, <opts>, based on <release>)", with
+# our identity in the middle. "Android" stays: it names the distribution, and
+# these are NDK toolchains built from that llvm_android drop. The build id is
+# ours -- the Actions run id, which pins the commit, the flags and the projects
+# behind the binary -- where copying Google's would name a build that isn't this
+# one. <opts> is derived from the settings below rather than written by hand, so
+# it can't advertise an optimization we didn't apply: it names the optimization
+# pipeline this binary went through, nothing else, and stays absent while there
+# isn't one. That is also why "polly" and "bolt" are not in it -- we ship those
+# as a pass plugin and a tool, we don't build clang itself with them. clang
+# appends the separating space itself, see clang/lib/Basic/CMakeLists.txt.
+LLVM_LTO="${LLVM_LTO:-OFF}"
+VENDOR_OPTS=""
+if [ "$LLVM_LTO" != OFF ]; then VENDOR_OPTS="LTO"; fi
+if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}PGO"; fi
+CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }${VENDOR_OPTS:+$VENDOR_OPTS, }based on ${CLANG_RELEASE:-unknown})}"
+log "Vendor: $CLANG_VENDOR"
+
 # --- zlib + zstd (static, bundled) -----------------------------------------
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
@@ -259,11 +283,11 @@ args=(
   -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_ENABLE_PIC=$LLVM_PIC
   -DLLVM_ENABLE_LIBCXX=OFF -DLLVM_ENABLE_LLVM_LIBC=OFF
   -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_RTTI=OFF
-  -DLLVM_ENABLE_LTO=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_MODULES=OFF
+  -DLLVM_ENABLE_LTO="$LLVM_LTO" -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_MODULES=OFF
   -DLLVM_ENABLE_FFI=OFF -DLLVM_ENABLE_LIBPFM=OFF -DLLVM_ENABLE_LIBEDIT=OFF
   -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_CURL=OFF -DLLVM_ENABLE_THREADS=ON
   -DLLVM_VERSION_SUFFIX=""
-  -DCLANG_VENDOR="${CLANG_VENDOR:-Android}"
+  -DCLANG_VENDOR="$CLANG_VENDOR"
   -DCLANG_DEFAULT_LINKER=lld -DCLANG_DEFAULT_OBJCOPY=llvm-objcopy
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
@@ -277,6 +301,8 @@ args+=(
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CXXFLAGS")
 # pass CMAKE_OBJCOPY only when the toolchain has one (empty on macos).
 [ -n "$CROSS_OBJCOPY" ] && args+=(-DCMAKE_OBJCOPY="$CROSS_OBJCOPY")
+# the vendor string reports PGO off the same variable, so it has to reach cmake.
+[ -n "${LLVM_PROFDATA_FILE:-}" ] && args+=(-DLLVM_PROFDATA_FILE="$LLVM_PROFDATA_FILE")
 # arm64ec: llvm-mingw skips compiler-rt for EC and builds the aarch64 builtins
 # -marm64x, so LLVM's PURE_WINDOWS probes find __ashldi3 and friends but the
 # EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT's

@@ -107,15 +107,15 @@ ver_line=$("$NDK_LLVM/bin/clang" --version)
 LLVM_VERSION=$(echo "$ver_line" | sed -n 's/.*clang version \([0-9][0-9.]*[a-zA-Z0-9]*\).*/\1/p')
 LLVM_REV=$(echo "$ver_line" | sed -E 's/.*llvm-project ([a-f0-9]{40}).*/\1/' | head -n1)
 ANDROID_REV=$(grep 'llvm_android/+/.*' "$CLANG_SOURCE_INFO" | sed -n 's/.*llvm_android\/\+//; s/\/patches.*//p' | sed 's/\/\+//g; s/^\+//g' | head -n1)
-# CLANG_VENDOR, lifted whole from the official clang so ours reports the same
-# source drop: "Android (<build id>, based on <revision>)". llvm_android builds
-# it from its own build number and svn revision, neither of which we have, but
-# the string is right there in the binary we already ran.
-CLANG_VENDOR=$(echo "$ver_line" | sed -n 's/^\(Android ([^)]*)\).*/\1/p' | head -n1)
 [ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] && [ -n "$ANDROID_REV" ] || {
   echo "Failed to resolve LLVM/android versions from the NDK" >&2; exit 1; }
-log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV"
-log "Vendor: ${CLANG_VENDOR:-Android}"
+# The "based on <release>" half of the vendor string, read from the NDK's own
+# AndroidVersion.txt so ours says "based on r574158c" exactly like Google's
+# instead of a 40-char sha. That file has carried the line since at least r25;
+# fall back to the llvm_android commit if a tree ever turns up without it.
+CLANG_RELEASE=$(sed -n 's/^based on \(.*\)$/\1/p' "$NDK_LLVM/AndroidVersion.txt" 2>/dev/null | tr -d '\r' | head -n1)
+CLANG_RELEASE="${CLANG_RELEASE:-$ANDROID_REV}"
+log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV / based on $CLANG_RELEASE"
 
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
@@ -293,7 +293,7 @@ esac
 
 cat > "$ROOTDIR/.build-env" <<EOF
 LLVM_VERSION=$LLVM_VERSION
-CLANG_VENDOR='$CLANG_VENDOR'
+CLANG_RELEASE=$CLANG_RELEASE
 LLVM_TARGETS='$LLVM_TARGETS'
 SRC=$SRC
 NDK_DIR=$NDK_DIR

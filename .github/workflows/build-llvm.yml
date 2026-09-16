@@ -88,6 +88,7 @@ jobs:
             -e NDK_REVISION='${{ inputs.revision }}' \
             -e PROJECTS='${{ inputs.projects }}' \
             -e ROOTDIR=/work \
+            -e LLVM_BUILD_ID='${{ github.run_id }}' \
             -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository }}' \
             -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
             "$IMAGE" \
