@@ -21,6 +21,9 @@
 #                      targets whose triple the AOT compiler accepts
 #   CLANG_VENDOR       overrides the composed vendor string outright
 #   ZLIB_VERSION / ZSTD_VERSION  bundled dependency versions
+#   BUILD_PROFDATA     1 = generate the PGO profile for this llvm revision and
+#                      exit, instead of cross building. Needs only NDK_VERSION
+#                      (via fetch-source.sh); PLATFORM/TARGET are unused.
 #
 # Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
 # LLVM_TARGETS, the CLANG_RELEASE the vendor string is "based on", and the
@@ -28,19 +31,60 @@
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
-: "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
 PROJECTS="${PROJECTS:-bolt;clang;clang-tools-extra;lld;polly}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PATCHES_DIR="${PATCHES_DIR:-$SCRIPT_DIR/../patches}"
 
 # shellcheck disable=SC1091
 [ -f "$ROOTDIR/.build-env" ] && . "$ROOTDIR/.build-env"
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+# --- PGO profile generation -------------------------------------------------
+# BUILD_PROFDATA=1 makes this a native instrumented build and training run
+# instead of a cross build, leaving $ROOTDIR/<llvm rev>.profdata.xz behind. It
+# sits here rather than in a workflow so it runs the same way under `docker run`
+# as it does in CI, and so the profile's shape is versioned with the build that
+# consumes it.
+#
+# No stage1: we are not bootstrapping a toolchain, only instrumenting one well
+# enough to count how often clang runs each function, so the image's own
+# compiler builds it. One profile serves every target built from this tree --
+# a frontend profile keys on function name and CFG hash and carries no target
+# codegen, which is how llvm_android points one profdata at linux, at its mingw
+# cross build and at a universal darwin build at once.
+if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
+  : "${LLVM_REV:?set LLVM_REV (run fetch-source.sh first)}"
+  PROF_BUILD="${PROF_BUILD:-$ROOTDIR/instr}"
+  SRC="${SRC:-$ROOTDIR/llvm-project}"
+  log "Instrumented build for $LLVM_REV (LLVM ${LLVM_VERSION:-?})"
+  # LLVM_PROFDATA is the merge tool, not a build input, so pointing it into this
+  # tree is fine: it only has to exist by the time the merge step runs, and being
+  # the same revision as the instrumentation keeps the profraw format readable.
+  cmake -S "$SRC/llvm" -B "$PROF_BUILD" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER="${PROF_CC:-clang}" -DCMAKE_CXX_COMPILER="${PROF_CXX:-clang++}" \
+    -DLLVM_ENABLE_PROJECTS=clang \
+    -DLLVM_TARGETS_TO_BUILD="${LLVM_TARGETS:-AArch64;ARM;BPF;RISCV;WebAssembly;X86}" \
+    -DLLVM_BUILD_INSTRUMENTED=ON \
+    -DLLVM_INCLUDE_TESTS=ON \
+    -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
+    -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_WARNINGS=OFF \
+    -DLLVM_PROFDATA="$PROF_BUILD/bin/llvm-profdata"
+  cmake --build "$PROF_BUILD" --target llvm-profdata
+  cmake --build "$PROF_BUILD" --target generate-profdata
+  _prof="$(find "$PROF_BUILD" -name clang.profdata | head -n1)"
+  [ -n "$_prof" ] || { echo "generate-profdata produced no clang.profdata" >&2; exit 1; }
+  xz -T0 -c "$_prof" > "$ROOTDIR/$LLVM_REV.profdata.xz"
+  log "Done -> $ROOTDIR/$LLVM_REV.profdata.xz ($(du -h "$ROOTDIR/$LLVM_REV.profdata.xz" | cut -f1))"
+  exit 0
+fi
+
+: "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
 SRC="${SRC:-$ROOTDIR/llvm-project}"
 BUILD_DIR="${BUILD_DIR:-$ROOTDIR/build/$TARGET}"
 INSTALL_DIR="${INSTALL_DIR:-$ROOTDIR/deps/$TARGET}"
 OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"
-
-log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 # Download with retries: re-run aria2c on any failure so transient GitHub errors
 # recover. Pass aria2c args, e.g. fetch --dir=/tmp -o f.zip URL.

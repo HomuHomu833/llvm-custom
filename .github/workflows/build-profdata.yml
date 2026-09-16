@@ -68,7 +68,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch source
+      - name: Build profile
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llvm-builder:latest"
           docker run --rm \
@@ -78,55 +78,16 @@ jobs:
             -e NDK_REVISION='${{ inputs.revision }}' \
             -e ROOTDIR=/work \
             -e ENABLE_PGO=0 -e ENABLE_MLGO=0 \
-            "$IMAGE" scripts/fetch-source.sh
-          # shellcheck disable=SC1091
-          . /mnt/build/.build-env
-          echo "llvm_rev=$LLVM_REV" >> "$GITHUB_ENV"
-          echo "Profiling $LLVM_REV (LLVM $LLVM_VERSION)"
-
-      - name: Instrumented build + training run
-        run: |
-          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llvm-builder:latest"
-          docker run --rm \
-            -v "/mnt/build:/work" -w /work --user "$(id -u):$(id -g)" \
-            -e HOME=/work "$IMAGE" bash -euxo pipefail -c '
-              . /work/.build-env
-              # Native build with the image compiler. No stage1: we are not
-              # bootstrapping a toolchain, only instrumenting one well enough to
-              # count how often clang runs each function.
-              #
-              # LLVM_PROFDATA is the merge tool, not a build input, so pointing
-              # it into this build tree is fine -- the file only has to exist by
-              # the time the merge step runs, and being the same revision as the
-              # instrumentation is what keeps the profraw format readable.
-              cmake -S /work/llvm-project/llvm -B /work/instr -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-                -DLLVM_ENABLE_PROJECTS=clang \
-                -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGETS" \
-                -DLLVM_BUILD_INSTRUMENTED=ON \
-                -DLLVM_INCLUDE_TESTS=ON \
-                -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
-                -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
-                -DLLVM_ENABLE_WARNINGS=OFF \
-                -DLLVM_PROFDATA=/work/instr/bin/llvm-profdata
-              cmake --build /work/instr --target llvm-profdata
-              cmake --build /work/instr --target generate-profdata
-            '
-
-      - name: Package
-        run: |
-          src=$(find /mnt/build/instr -name clang.profdata | head -n1)
-          test -n "$src"
-          ls -lh "$src"
-          xz -T0 -c "$src" > "/mnt/${{ env.llvm_rev }}.profdata.xz"
-          ls -lh "/mnt/${{ env.llvm_rev }}.profdata.xz"
+            -e BUILD_PROFDATA=1 \
+            "$IMAGE" \
+            bash -c 'scripts/fetch-source.sh && scripts/build.sh'
+          ls -lh /mnt/build/*.profdata.xz
 
       - name: Upload release
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: "profdata"
-          artifacts: /mnt/${{ env.llvm_rev }}.profdata.xz
+          artifacts: /mnt/build/*.profdata.xz
           allowUpdates: true
           replacesArtifacts: true
-          body: 'Frontend PGO profiles, one per llvm-project revision. Consumed by fetch-source.sh.'
+          body: ''
