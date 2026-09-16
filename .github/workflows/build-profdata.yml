@@ -1,16 +1,10 @@
 name: Build PGO profile
 run-name: PGO profile for r${{inputs.version}}${{inputs.revision}}
-# Produces the frontend PGO profile the cross builds consume, one per
-# llvm-project tree rather than one per target: a -fprofile-instr-use profile
-# keys on function name and CFG hash and carries no target codegen, so a single
-# file serves every triple we build from that tree. llvm_android relies on the
-# same property, pointing one profdata at linux, at its mingw cross build and at
-# a universal arm64+x86_64 darwin build.
-#
-# Assets land on the "profdata" tag named by the llvm revision, which is exactly
-# what fetch-source.sh looks up. Re-running for an NDK release that shares a tree
-# with one already profiled just overwrites it with an equivalent file, so there
-# is no need to track which releases map to which tree by hand.
+# Produces the PGO profile the cross builds consume -- one per llvm-project tree
+# rather than one per target; see build.sh's BUILD_PROFDATA for why one covers
+# all. Assets land on the "profdata" tag named by the llvm revision, which is
+# what fetch-source.sh looks up, so re-running a release that shares a tree with
+# one already profiled just rewrites an equivalent file.
 on:
   workflow_dispatch:
     inputs:

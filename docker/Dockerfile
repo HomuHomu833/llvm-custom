@@ -128,7 +128,8 @@ RUN arch="$(uname -m)"; \
 
 # Only zig on PATH: its wrappers exec a bare `zig` and build.sh overlays musl
 # fixes next to it. zig-as-llvm / llvm-mingw stay off PATH (called by absolute
-# path) so `cc`/`c++` resolve to the host gcc LLVM uses to bootstrap tablegen.
+# path) so `cc`/`c++` keep resolving to the clang above, which LLVM uses to
+# bootstrap tablegen.
 ENV QEMU_LD_PREFIX=/usr/x86_64-linux-gnu
 
 ENV PATH="/opt/zig:${PATH}"

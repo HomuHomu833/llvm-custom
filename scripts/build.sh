@@ -14,8 +14,8 @@
 #   ANDROID_API bionic API level (default: 24, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
 #   LLVM_BUILD_ID      build id for the vendor string (CI passes the Actions run id)
-#   LLVM_LTO           LLVM_ENABLE_LTO (default: OFF); any other value lands in
-#                      the vendor string as LTO
+#   LLVM_LTO           LLVM_ENABLE_LTO (default: OFF); forced off on macos, and
+#                      any other value lands in the vendor string as LTO
 #   LLVM_PROFDATA_FILE optional PGO profile; its presence lands as PGO
 #   TENSORFLOW_AOT_PATH  tensorflow pip dir; with MLGO_DIR it enables MLGO for
 #                      targets whose triple the AOT compiler accepts
@@ -25,9 +25,9 @@
 #                      exit, instead of cross building. Needs only NDK_VERSION
 #                      (via fetch-source.sh); PLATFORM/TARGET are unused.
 #
-# Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
-# LLVM_TARGETS, the CLANG_RELEASE the vendor string is "based on", and the
-# resolved LLVM_PROFDATA_FILE / MLGO_DIR.
+# Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC, NDK_DIR,
+# LLVM_VERSION, LLVM_REV, LLVM_TARGETS, the CLANG_RELEASE the vendor string is
+# "based on", and the resolved LLVM_PROFDATA_FILE / MLGO_DIR.
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
