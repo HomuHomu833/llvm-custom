@@ -20,6 +20,7 @@
 #   TENSORFLOW_AOT_PATH  tensorflow pip dir; with MLGO_DIR it enables MLGO for
 #                      targets whose triple the AOT compiler accepts
 #   CLANG_VENDOR       overrides the composed vendor string outright
+#   ZLIB_VERSION / ZSTD_VERSION  bundled dependency versions
 #
 # Reads $ROOTDIR/.build-env (written by fetch-source.sh) for SRC/NDK_DIR/LLVM_VERSION,
 # LLVM_TARGETS, the CLANG_RELEASE the vendor string is "based on", and the
@@ -254,16 +255,18 @@ CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }${VENDO
 log "Vendor: $CLANG_VENDOR"
 
 # --- zlib + zstd (static, bundled) -----------------------------------------
+ZLIB_VERSION="${ZLIB_VERSION:-1.3.2}"
+ZSTD_VERSION="${ZSTD_VERSION:-1.5.7}"
 mkdir -p "$INSTALL_DIR" "$BUILD_DIR"
 if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
-  log "Building zlib"
-  fetch_unpack https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz \
+  log "Building zlib $ZLIB_VERSION"
+  fetch_unpack "https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.xz" \
     /tmp/zlib.tar.xz "$ROOTDIR"
-  ( cd "$ROOTDIR/zlib-1.3.1" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
+  ( cd "$ROOTDIR/zlib-$ZLIB_VERSION" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
-  log "Building zstd"
-  fetch_unpack https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz \
+  log "Building zstd $ZSTD_VERSION"
+  fetch_unpack "https://github.com/facebook/zstd/archive/refs/tags/v$ZSTD_VERSION.tar.gz" \
     /tmp/zstd.tar.gz "$ROOTDIR"
   # arm64ec carries x86_64's macros so datatype layouts match x64, but zstd reads
   # them as "has x86 instructions": _M_AMD64 pulls <emmintrin.h> (ZSTD_NO_INTRINSICS
@@ -273,12 +276,12 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   case "$TARGET" in
     arm64ec-*)
       ZSTD_EXTRA_CFLAGS=" -DZSTD_NO_INTRINSICS"
-      grep -rl 'defined(__x86_64__)\|defined(_M_X64)' "$ROOTDIR/zstd-1.5.6/lib" 2>/dev/null | while read -r _f; do
+      grep -rl 'defined(__x86_64__)\|defined(_M_X64)' "$ROOTDIR/zstd-$ZSTD_VERSION/lib" 2>/dev/null | while read -r _f; do
         sed -i -e 's@defined(__x86_64__)@(defined(__x86_64__) \&\& !defined(__arm64ec__))@g' \
                -e 's@defined(_M_X64)@(defined(_M_X64) \&\& !defined(_M_ARM64EC))@g' "$_f"
       done ;;
   esac
-  cmake -S "$ROOTDIR/zstd-1.5.6/build/cmake" -B "$BUILD_DIR/zstd" \
+  cmake -S "$ROOTDIR/zstd-$ZSTD_VERSION/build/cmake" -B "$BUILD_DIR/zstd" \
     -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC" \
     -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB" -DCMAKE_STRIP="$CROSS_STRIP" \
     ${CROSS_OBJCOPY:+-DCMAKE_OBJCOPY="$CROSS_OBJCOPY"} -DCMAKE_LINKER="$CROSS_LD" \
