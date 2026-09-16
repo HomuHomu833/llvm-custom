@@ -28,7 +28,7 @@ on:
         type: boolean
       lto:
         description: "Use ThinLTO"
-        default: false
+        default: true
         required: false
         type: boolean
 

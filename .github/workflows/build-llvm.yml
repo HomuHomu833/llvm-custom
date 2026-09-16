@@ -36,10 +36,10 @@ on:
         type: boolean
         default: true
       lto:
-        description: "ThinLTO; linux + windows only, matching llvm_android"
+        description: "ThinLTO; applied everywhere except macos"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write

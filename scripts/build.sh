@@ -14,7 +14,7 @@
 #   ANDROID_API bionic API level (default: 24, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
 #   LLVM_BUILD_ID      build id for the vendor string (CI passes the Actions run id)
-#   LLVM_LTO           LLVM_ENABLE_LTO (default: OFF); forced off on macos, and
+#   LLVM_LTO           LLVM_ENABLE_LTO (default: Thin); forced off on macos, and
 #                      any other value lands in the vendor string as LTO
 #   LLVM_PROFDATA_FILE optional PGO profile; its presence lands as PGO
 #   TENSORFLOW_AOT_PATH  tensorflow pip dir; with MLGO_DIR it enables MLGO for
@@ -332,7 +332,7 @@ fi
 # but Stage2Builder guards LLVM_ENABLE_LTO on "not target_os.is_darwin" and drops
 # it, so the mac toolchain they ship isn't LTO'd. The same guard suits us: the
 # cctools ld64 osxcross calls is built without libLTO and won't take bitcode.
-LLVM_LTO="${LLVM_LTO:-OFF}"
+LLVM_LTO="${LLVM_LTO:-Thin}"
 LINK_JOBS=1
 if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   log "LTO: not applied on macos, matching llvm_android"
