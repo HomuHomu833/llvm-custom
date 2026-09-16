@@ -241,6 +241,31 @@ case "${LLVM_VERSION%%.*}" in
        -DCROSS_TOOLCHAIN_FLAGS_NATIVE="-DCMAKE_C_COMPILER=/usr/bin/cc;-DCMAKE_CXX_COMPILER=/usr/bin/c++" ) ;;
 esac
 
+# --- PGO usability ----------------------------------------------------------
+# The profile is written by llvm-profdata from the tree being built, but it is
+# *read* by whichever cross compiler builds that tree, and those are four
+# unrelated toolchains at four different LLVM versions. An indexed profile
+# carries a format version and a reader rejects anything newer than its own, so
+# the pairing is not always valid: the image's apt clang, which the osxcross
+# wrappers invoke, tops out at version 11, while every tree from r28 on emits
+# version 12.
+#
+# Rather than keep a version table in step with four toolchains, ask the actual
+# compiler. Two probes, so an unrelated compile failure doesn't quietly cost us
+# the profile: PGO is dropped only when the plain compile works and adding the
+# profile is what breaks it.
+if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
+  mkdir -p "$BUILD_DIR"
+  echo 'int main(void){return 0;}' > "$BUILD_DIR/pgo-probe.c"
+  if "$CROSS_CC" $CROSS_CFLAGS -c "$BUILD_DIR/pgo-probe.c" -o "$BUILD_DIR/pgo-probe.o" >/dev/null 2>&1 \
+     && ! "$CROSS_CC" $CROSS_CFLAGS -fprofile-instr-use="$LLVM_PROFDATA_FILE" \
+            -c "$BUILD_DIR/pgo-probe.c" -o "$BUILD_DIR/pgo-probe.o" >/dev/null 2>&1; then
+    log "PGO: $(basename "$CROSS_CC") cannot read this profile, building without"
+    LLVM_PROFDATA_FILE=""
+  fi
+  rm -f "$BUILD_DIR/pgo-probe.c" "$BUILD_DIR/pgo-probe.o"
+fi
+
 # --- MLGO -------------------------------------------------------------------
 # llvm/CMakeLists.txt turns the SavedModel into an object file for *this* target
 # (TensorFlowCompile.cmake passes --target_triple $LLVM_HOST_TRIPLE) and then
