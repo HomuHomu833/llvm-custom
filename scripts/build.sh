@@ -65,6 +65,32 @@ if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   # handles both spellings: .../bin/clang -> clang++, and clang-20 -> clang++-20
   PROF_CXX="${PROF_CXX:-$(echo "$PROF_CC" | sed -E 's@clang(-[0-9]+)?$@clang++\1@')}"
   log "Instrumented build for $LLVM_REV (LLVM ${LLVM_VERSION:-?}) with $PROF_CC"
+  # Only r26 and r27 ship a host libclang_rt.profile; every other NDK has just
+  # the *-android ones, so -fprofile-instr-generate links against a path that
+  # isn't in the package. Build that single library from this tree instead of
+  # borrowing one: same source as the llvm-profdata that reads the raw files, so
+  # the version still matches. Ask clang where it will look rather than guessing,
+  # since the resource dir moved from lib/linux to lib/<triple> around r29.
+  _rt="$("$PROF_CC" -fprofile-instr-generate -x c /dev/null -o /dev/null -### 2>&1 \
+         | tr ' ' '\n' | tr -d '"' | grep -m1 'libclang_rt\.profile' || true)"
+  if [ -n "$_rt" ] && [ ! -f "$_rt" ]; then
+    log "NDK has no host profile runtime, building it -> $_rt"
+    cmake -S "$SRC/llvm" -B "$ROOTDIR/crt" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER="$PROF_CC" -DCMAKE_CXX_COMPILER="$PROF_CXX" \
+      -DLLVM_ENABLE_PROJECTS=compiler-rt \
+      -DLLVM_TARGETS_TO_BUILD=X86 \
+      -DCOMPILER_RT_BUILD_PROFILE=ON \
+      -DCOMPILER_RT_BUILD_BUILTINS=OFF -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
+      -DCOMPILER_RT_BUILD_XRAY=OFF -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+      -DCOMPILER_RT_BUILD_MEMPROF=OFF -DCOMPILER_RT_BUILD_ORC=OFF \
+      -DCOMPILER_RT_BUILD_CTX_PROFILE=OFF -DCOMPILER_RT_INCLUDE_TESTS=OFF
+    cmake --build "$ROOTDIR/crt" --target profile
+    _built="$(find "$ROOTDIR/crt" -name 'libclang_rt.profile*.a' | head -n1)"
+    [ -n "$_built" ] || { echo "compiler-rt built no profile runtime" >&2; exit 1; }
+    mkdir -p "$(dirname "$_rt")"
+    cp "$_built" "$_rt"
+  fi
   # LLVM_PROFDATA is the merge tool, not a build input, so pointing it into this
   # tree is fine: it only has to exist by the time the merge step runs, and being
   # the same revision as the instrumentation keeps the profraw format readable.
