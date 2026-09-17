@@ -478,6 +478,16 @@ if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
     /tmp/zlib.tar.xz "$ROOTDIR"
   (
     cd "$ROOTDIR/zlib-$ZLIB_VERSION"
+    # gzwrite.c reads errno and EAGAIN, but gzguts.h only pulls errno.h when
+    # NO_STRERROR is unset, so a target whose strerror probe fails loses the
+    # include and not just strerror. osxcross is one, and 1.3.2 is where the
+    # errno use appeared. Include it outright; the two have no business being
+    # tied together.
+    if ! grep -q '^#include <errno.h>' gzguts.h; then
+      sed -i 's@^/\* get errno and strerror definition \*/@#include <errno.h>\n&@' gzguts.h
+      grep -q '^#include <errno.h>' gzguts.h || {
+        echo "zlib: could not add the errno.h include to gzguts.h" >&2; exit 1; }
+    fi
     AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" \
       ./configure --prefix="$INSTALL_DIR" --static
     # zlib 1.3.2 adds crc32_vx.o to the s390x build once its -fzvector probe
