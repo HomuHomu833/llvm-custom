@@ -250,6 +250,32 @@ export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_
 # Extra cmake flags for zstd + LLVM: env-supplied plus Darwin SDK/libtool/arch
 # pins so CMake doesn't probe a host Xcode. Other platforms need none.
 # shellcheck disable=SC2206  # intentional word-splitting of the env var
+# bionic's syscall stubs end in "b.hi __set_errno_internal", a CONDBR19 that
+# reaches 1MB. Link statically and the rest of libc.a settles between the two
+# objects, 1.9MB apart, and lld builds range extension thunks for CALL26 and
+# JUMP26 but not for conditional branches. Nothing we pass the compiler helps:
+# the instruction is already assembled into Google's prebuilt libc.a, and an
+# AArch64 code model governs address materialisation and BL versus BLR, never
+# b.cond. Ordering is the only lever left. Naming one symbol from each object
+# hoists both whole sections to the front of .text, adjacent, because assembly
+# .text is not split per function. Probed, since it costs a flag if the linker
+# turns out not to take it.
+if [ "$PLATFORM" = bionic ]; then
+  mkdir -p "$BUILD_DIR"
+  printf '%s\n' __set_errno_internal getuid > "$BUILD_DIR/symbol-order.txt"
+  _so="-Wl,--symbol-ordering-file=$BUILD_DIR/symbol-order.txt -Wl,--no-warn-symbol-ordering"
+  echo 'int main(void){return 0;}' > "$BUILD_DIR/so-probe.c"
+  # shellcheck disable=SC2086
+  if "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS $_so \
+       "$BUILD_DIR/so-probe.c" -o "$BUILD_DIR/so-probe" >/dev/null 2>&1; then
+    CROSS_LDFLAGS="$CROSS_LDFLAGS $_so"
+    log "bionic: pinning __set_errno_internal next to the syscall stubs"
+  else
+    log "bionic: linker will not take --symbol-ordering-file, leaving layout alone"
+  fi
+  rm -f "$BUILD_DIR/so-probe.c" "$BUILD_DIR/so-probe"
+fi
+
 EXTRA_CMAKE_FLAGS=(${EXTRA_CMAKE_FLAGS:-})
 if [ "$SYSTEM_NAME" = Darwin ]; then
   SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
