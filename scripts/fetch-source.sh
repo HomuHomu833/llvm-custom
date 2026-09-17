@@ -249,6 +249,22 @@ if [ "${PLATFORM:-}" = bsd ]; then
   }' "$SRC/llvm/tools/llvm-rtdyld/llvm-rtdyld.cpp" || true
 fi
 
+# clang-ast-dump exists only to generate ASTNodeAPI.json, and a cross build never
+# runs it: CMAKE_CROSSCOMPILING is in the guard that swaps in
+# EmptyNodeIntrospection.inc and forces CLANG_TOOLING_BUILD_AST_INTROSPECTION
+# off. add_subdirectory(DumpTool) sits outside that guard, so the tool is still
+# built and linked for the target. On bionic aarch64 that link fails: the static
+# binary grows until two libc.a members are 1.9MB apart, past the 1MB reach of
+# R_AARCH64_CONDBR19, which lld cannot thunk. BUILD_PROFDATA is native and does
+# take the generating branch, so it keeps the tool.
+if [ "${BUILD_PROFDATA:-0}" != 1 ]; then
+  _tooling="$SRC/clang/lib/Tooling/CMakeLists.txt"
+  if [ -f "$_tooling" ] && grep -q '^add_subdirectory(DumpTool)$' "$_tooling"; then
+    sed -i '/^add_subdirectory(DumpTool)$/d' "$_tooling"
+    log "clang: dropped clang-ast-dump, unused in a cross build"
+  fi
+fi
+
 # bolt_rt, the runtime BOLT injects into instrumented binaries, is Linux-only:
 # it makes raw Linux syscalls and its osx variant builds -target
 # x86_64-apple-darwin, which zig rejects. LLVM 14 enables it off the *builder's*
