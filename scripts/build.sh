@@ -302,9 +302,14 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
   # tf_compile only proves the model translates. The Eigen-heavy runtime built
   # beside it is the part that breaks: on aarch64 its convolution path
   # static-asserts on the NEON register block size (nr is 8, the assert wants 4).
-  # Compile one of those TUs here rather than fail ten minutes in.
-  _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name 'convolution_lib*.cc' 2>/dev/null | head -n1)"
-  [ -n "$_tu" ] || _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name '*.cc' 2>/dev/null | head -n1)"
+  # Compile one of those TUs here rather than fail ten minutes in. It has to be
+  # an f32 one: only the float path instantiates the gemm_pack_rhs specialisation
+  # that asserts, so the f16 and dot_lib TUs compile fine on aarch64 and prove
+  # nothing. Sorted, because unsorted find order picked one of those.
+  _find_tu() { find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name "$1" 2>/dev/null | sort | head -n1; }
+  _tu="$(_find_tu 'convolution_lib_f32*.cc')"
+  [ -n "$_tu" ] || _tu="$(_find_tu 'convolution_lib*.cc')"
+  [ -n "$_tu" ] || _tu="$(_find_tu '*.cc')"
   if ! { [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
        --dir "$MLGO_DIR/inlining-Oz-chromium" --tag_set serve \
        --signature_def_key action --output_prefix "$BUILD_DIR/mlgo-probe" \
@@ -339,18 +344,31 @@ if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   log "LTO: not applied on macos, matching llvm_android"
   LLVM_LTO=OFF
 fi
+# Soft-float mips gets no LTO: lld rejects the objects the LTO backend produces,
+# which come out tagged -mdouble-float against an -msoft-float target. A probe
+# does not reproduce it, because compiling and linking one TU in a single driver
+# call keeps the ABI consistent in a way the separate link step does not. Ask the
+# compiler which ABI it is instead of matching triples, so the hard-float mips
+# targets keep LTO.
+if [ "$LLVM_LTO" != OFF ] &&
+   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -q '__mips_soft_float'; then
+  log "LTO: soft-float mips, lld rejects the LTO objects, building without"
+  LLVM_LTO=OFF
+fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # Probe by linking, not compiling: LTO is a link-time property. Keep the
-  # double; it makes the bitcode carry an FP ABI module flag, which is how mips
-  # soft-float shows up. Integer-only probes link clean there and the build then
-  # dies at llvm-tblgen.
+  # Probe by linking, not compiling: LTO is a link-time property. C++ with a
+  # throw, so the probe drags in libc++abi's exception machinery the real link
+  # pulls, and a double, so the bitcode carries an FP ABI module flag.
   mkdir -p "$BUILD_DIR"
-  printf '%s\n' 'double f(double x){return x*2.0;}' \
-                'int main(void){return (int)f(1.5);}' > "$BUILD_DIR/lto-probe.c"
-  _lto_link() { "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
-    "$BUILD_DIR/lto-probe.c" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
+  printf '%s\n' '#include <stdexcept>' \
+                'double f(double x){return x*2.0;}' \
+                'int main(){ try { if (f(1.5) > 0) throw std::runtime_error("x"); }' \
+                '            catch (const std::exception &) { return 0; } return 0; }' \
+                > "$BUILD_DIR/lto-probe.cc"
+  _lto_link() { "$CROSS_CXX" $CROSS_CXXFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
+    "$BUILD_DIR/lto-probe.cc" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
   if ! _lto_link; then
-    log "LTO: $(basename "$CROSS_CC") cannot link -flto=thin, building without"
+    log "LTO: $(basename "$CROSS_CXX") cannot link -flto=thin, building without"
     LLVM_LTO=OFF
   elif [ ${#MLGO_ARGS[@]} -gt 0 ]; then
     # The advisor only reaches the register allocator through the linker, and zig
@@ -373,7 +391,7 @@ if [ "$LLVM_LTO" != OFF ]; then
       log "LTO: linker will not take --lto-O0, leaving codegen at default"
     fi
   fi
-  rm -f "$BUILD_DIR/lto-probe.c" "$BUILD_DIR/lto-probe"
+  rm -f "$BUILD_DIR/lto-probe.cc" "$BUILD_DIR/lto-probe"
 fi
 if [ "$LLVM_LTO" != OFF ]; then
   # They widen this to min(ncpu/2, 16), sized for their build machines. On a
@@ -409,7 +427,22 @@ if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
   log "Building zlib $ZLIB_VERSION"
   fetch_unpack "https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.xz" \
     /tmp/zlib.tar.xz "$ROOTDIR"
-  ( cd "$ROOTDIR/zlib-$ZLIB_VERSION" && AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" ./configure --prefix="$INSTALL_DIR" --static && make -j"$(nproc)" install )
+  (
+    cd "$ROOTDIR/zlib-$ZLIB_VERSION"
+    AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" \
+      ./configure --prefix="$INSTALL_DIR" --static
+    # zlib 1.3.2 adds crc32_vx.o to the s390x build once its -fzvector probe
+    # succeeds, but its Makefile.in substitutions have no VGFMAFLAG line, so the
+    # flag that probe needed never reaches the compile and vecintrin.h refuses to
+    # expand. configure.log records the value it settled on, -march=z13 and all;
+    # put it back rather than give up the vectorised crc32.
+    _vgfma="$(sed -n 's/^VGFMAFLAG = //p' configure.log | tail -n1)"
+    if [ -n "$_vgfma" ]; then
+      log "zlib: restoring VGFMAFLAG=$_vgfma that configure dropped"
+      sed -i "s#^VGFMAFLAG=.*#VGFMAFLAG=$_vgfma#" Makefile
+    fi
+    make -j"$(nproc)" install
+  )
 fi
 if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
   log "Building zstd $ZSTD_VERSION"
