@@ -339,14 +339,45 @@ if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   LLVM_LTO=OFF
 fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # ThinLTO defers codegen to link time, so a -mllvm flag only reaches the
-  # register allocator by way of the linker.
-  [ ${#MLGO_ARGS[@]} -gt 0 ] && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-mllvm,-regalloc-enable-advisor=release"
-  # Unprofiled, they don't rate link-time codegen worth its cost. Linux only,
-  # which is where they apply it.
-  if [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
-    CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
+  # Two probes, both a full link, because LTO is a link-time property and a
+  # compile alone proves nothing. The first asks whether this toolchain links
+  # bitcode at all; the second whether it takes the regalloc advisor.
+  mkdir -p "$BUILD_DIR"
+  echo 'int main(void){return 0;}' > "$BUILD_DIR/lto-probe.c"
+  _lto_link() { "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
+    "$BUILD_DIR/lto-probe.c" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
+  if ! _lto_link; then
+    log "LTO: $(basename "$CROSS_CC") cannot link -flto=thin, building without"
+    LLVM_LTO=OFF
+  elif [ ${#MLGO_ARGS[@]} -gt 0 ]; then
+    # ThinLTO defers codegen to link time, so a -mllvm flag only reaches the
+    # register allocator by way of the linker -- and not every linker here takes
+    # it. zig parses linker args against an allowlist and hard-errors on anything
+    # missing from it ("unsupported linker arg: -mllvm"), with no --plugin-opt or
+    # other passthrough to fall back on; a real lld takes -mllvm but can still
+    # reject the value if it was built without the release advisor. Losing the
+    # flag only costs the regalloc model while building; passing it blind costs
+    # the build, so keep it only where it demonstrably links.
+    _adv="-Wl,-mllvm,-regalloc-enable-advisor=release"
+    if _lto_link "$_adv"; then
+      CROSS_LDFLAGS="$CROSS_LDFLAGS $_adv"
+    else
+      log "LTO: linker will not take -regalloc-enable-advisor=release, leaving it off"
+    fi
   fi
+  # Unprofiled, they don't rate link-time codegen worth its cost. Linux only,
+  # which is where they apply it -- and probed for the same reason as the flag
+  # above, since linux is zig's and its allowlist decides this one too.
+  if [ "$LLVM_LTO" != OFF ] && [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
+    if _lto_link -Wl,--lto-O0; then
+      CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
+    else
+      log "LTO: linker will not take --lto-O0, leaving codegen at default"
+    fi
+  fi
+  rm -f "$BUILD_DIR/lto-probe.c" "$BUILD_DIR/lto-probe"
+fi
+if [ "$LLVM_LTO" != OFF ]; then
   # They widen this to min(ncpu/2, 16), sized for their build machines. On a
   # 4-vCPU runner lld's --thinlto-jobs already uses every thread, so one link
   # saturates the box and a second only doubles peak RSS.
