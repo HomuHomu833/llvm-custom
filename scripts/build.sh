@@ -45,16 +45,15 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 #
 # No stage1: this instruments a compiler to count how often clang runs each
 # function, it doesn't bootstrap one. A frontend profile keys on function name
-# and CFG hash and carries no target codegen, so one profile per tree serves
-# every target built from it.
+# and CFG hash, so one profile per tree serves every target built from it.
 if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   : "${LLVM_REV:?set LLVM_REV (run fetch-source.sh first)}"
   PROF_BUILD="${PROF_BUILD:-$ROOTDIR/instr}"
   SRC="${SRC:-$ROOTDIR/llvm-project}"
   # The NDK's clang, not the image's: RawInstrProfReader wants an exact match
   # between the runtime that writes the raw profile and this tree's
-  # llvm-profdata, and the NDK is the same LLVM release as the tree (raw 8 for
-  # r25/r26, 9 for r27, 10 from r28 on -- the image clang only fits the last).
+  # llvm-profdata. The NDK is the same LLVM release as the tree; raw versions run
+  # 8 for r25/r26, 9 for r27, 10 from r28 on, and the image clang only fits 10.
   _ndk_clang="${NDK_DIR:-/nonexistent}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
   if [ -z "${PROF_CC:-}" ] && [ -x "$_ndk_clang" ]; then
     PROF_CC="$_ndk_clang"
@@ -143,13 +142,11 @@ unpack() {
 # way out. Usage: fetch_unpack URL ARCHIVE [DEST]
 #
 # aria2c's own retries cannot see a truncated download. Endpoints that generate
-# archives on the fly (gitiles' +archive, codeload) stream them chunked with
-# no Content-Length (aria2 logs the size as "0B/0B"), so when the far end cuts
-# the stream short there is no expected size to compare against: aria2 prints
-# "(OK):download completed" and exits 0 on a 600KiB truncation of a 200MiB
-# archive, and the damage only surfaces further down as "gzip: stdin:
-# unexpected end of file". Unpacking is the only integrity check available, so
-# the retry has to wrap the download and the unpack together.
+# archives on the fly (gitiles' +archive, codeload) stream them chunked with no
+# Content-Length, so there is no expected size to compare against: aria2 exits 0
+# on a 600KiB truncation of a 200MiB archive and the damage surfaces later as
+# "gzip: stdin: unexpected end of file". Unpacking is the only integrity check,
+# so the retry wraps download and unpack together.
 fetch_unpack() {
   local url="$1" archive="$2" dest="${3:-.}" i=0
   mkdir -p "$dest"
@@ -271,12 +268,11 @@ case "${LLVM_VERSION%%.*}" in
 esac
 
 # --- PGO usability ----------------------------------------------------------
-# The profile is read by whichever cross compiler builds the tree -- four
-# unrelated toolchains at four LLVM versions -- and an indexed profile is
-# rejected by any reader older than the version that wrote it. Ask the compiler
-# instead of keeping a version table in step with all four. Two probes, so an
-# unrelated compile failure doesn't quietly cost us the profile: PGO is dropped
-# only when the plain compile works and adding the profile breaks it.
+# Four unrelated toolchains at four LLVM versions read this profile, and an
+# indexed profile is rejected by any reader older than the one that wrote it.
+# Ask the compiler rather than keep a version table. Two probes, so an unrelated
+# compile failure can't cost us the profile: PGO drops only when the plain
+# compile works and adding the profile breaks it.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   mkdir -p "$BUILD_DIR"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/pgo-probe.c"
@@ -290,12 +286,11 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
 fi
 
 # --- MLGO -------------------------------------------------------------------
-# The model is AOT-compiled for this target and TensorFlow's xla_aot_runtime_src
-# is cross-built alongside it, so two things decide whether a target can do MLGO:
-# which backends the installed wheel carries, and whether that Eigen-heavy
-# runtime survives the target's endianness and SIMD. Neither is predictable from
-# a target list and either one fails the whole build, so probe both and let a
-# target that can't do it still ship a toolchain.
+# Two things decide whether a target can do MLGO: which backends the installed
+# wheel carries, and whether the Eigen-heavy xla_aot_runtime_src cross-built
+# beside the model survives the target's endianness and SIMD. Neither is
+# predictable from a target list and either one fails the whole build, so probe
+# both and let a target that can't do it still ship a toolchain.
 MLGO_ARGS=()
 # tensorflow lives in a venv at /opt/tf; ask it where, rather than hardcoding a
 # python version into the path.
@@ -304,11 +299,10 @@ TENSORFLOW_AOT_PATH="${TENSORFLOW_AOT_PATH:-$(/opt/tf/bin/python -c \
 if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_runtime_src" ]; then
   mkdir -p "$BUILD_DIR"
   _sm="$(cd "$TENSORFLOW_AOT_PATH/../../../.." && pwd)/bin/saved_model_cli"
-  # tf_compile only proves the model translates for this triple. The Eigen-heavy
-  # runtime cross-built beside it is a separate question: on aarch64 the
-  # convolution path static-asserts on the NEON register block size (nr is 8, the
-  # assert wants 4). Compile one of those TUs too -- that is where it breaks,
-  # otherwise ten minutes into the build rather than here.
+  # tf_compile only proves the model translates. The Eigen-heavy runtime built
+  # beside it is the part that breaks: on aarch64 its convolution path
+  # static-asserts on the NEON register block size (nr is 8, the assert wants 4).
+  # Compile one of those TUs here rather than fail ten minutes in.
   _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name 'convolution_lib*.cc' 2>/dev/null | head -n1)"
   [ -n "$_tu" ] || _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name '*.cc' 2>/dev/null | head -n1)"
   if ! { [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
@@ -346,11 +340,10 @@ if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   LLVM_LTO=OFF
 fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # Probe by linking, not compiling: LTO is a link-time property. The double is
-  # load-bearing -- it makes the bitcode carry an FP ABI module flag, which is
-  # how mips soft-float shows up ("floating point ABI '-mdouble-float' is
-  # incompatible with target floating point ABI '-msoft-float'"). An integer-only
-  # probe links clean there and the real build dies at llvm-tblgen.
+  # Probe by linking, not compiling: LTO is a link-time property. Keep the
+  # double; it makes the bitcode carry an FP ABI module flag, which is how mips
+  # soft-float shows up. Integer-only probes link clean there and the build then
+  # dies at llvm-tblgen.
   mkdir -p "$BUILD_DIR"
   printf '%s\n' 'double f(double x){return x*2.0;}' \
                 'int main(void){return (int)f(1.5);}' > "$BUILD_DIR/lto-probe.c"
@@ -396,11 +389,10 @@ fi
 #   Android (12285214, +pgo, +bolt, +lto, +mlgo, based on r522817b)
 #
 # All four markers, always, in that order, "+" applied and "-" not. The build id
-# is the Actions run id, which pins the commit and flags behind the binary;
-# Google's would name a build that isn't this one. bolt is always "-": we ship
-# the tools but never run the optimizer. The rest read the value that survived
-# their probe, so the string can't claim work a target dropped. clang adds the
-# trailing space, see clang/lib/Basic/CMakeLists.txt.
+# is the Actions run id, not Google's. bolt is always "-": we ship the tools but
+# never run the optimizer. The rest read the value that survived their probe, so
+# the string can't claim work a target dropped. clang adds the trailing space,
+# see clang/lib/Basic/CMakeLists.txt.
 _mark() { if [ "$1" = 1 ]; then printf '+%s' "$2"; else printf -- '-%s' "$2"; fi; }
 _on_pgo=0; if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then _on_pgo=1; fi
 _on_lto=0; if [ "$LLVM_LTO" != OFF ]; then _on_lto=1; fi
@@ -497,11 +489,10 @@ args+=(
   -DZLIB_LIBRARY="$INSTALL_DIR/lib/libz.a" -DZLIB_INCLUDE_DIR="$INSTALL_DIR/include"
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
-# A profile generated from one tree still misses functions that differ per
-# target -- #ifdef'd code, target-specific TableGen output -- so quiet the two
-# warnings that reports. Added here, after zlib/zstd have already been built
-# with CROSS_CFLAGS, so only the LLVM configure sees them. llvm_android
-# suppresses exactly this pair.
+# A profile from one tree still misses functions that differ per target, like
+# #ifdef'd code and target-specific TableGen output, so quiet the two warnings
+# that reports. Added after zlib/zstd are built, so only the LLVM configure sees
+# them. llvm_android suppresses exactly this pair.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   _pgo_w=" -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
   CROSS_CFLAGS="$CROSS_CFLAGS$_pgo_w"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS$_pgo_w"
@@ -514,10 +505,9 @@ fi
 [ ${#MLGO_ARGS[@]} -gt 0 ] && args+=("${MLGO_ARGS[@]}")
 # arm64ec: llvm-mingw skips compiler-rt for EC and builds the aarch64 builtins
 # -marm64x, so LLVM's PURE_WINDOWS probes find __ashldi3 and friends but the
-# EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT's
-# symbol table, which then fails to link ("undefined symbol: ... (EC symbol)").
-# Seed every probe in that block as absent: the alloca/chkstk/__main half fails
-# the same way, and they only populate the JIT symbol table.
+# EC-mangled forms do not exist. DynamicLibrary takes their address for the JIT
+# symbol table and the link fails. Seed every probe in that block as absent; the
+# alloca/chkstk/__main half fails the same way.
 case "$TARGET" in
   arm64ec-*)
     for _v in HAVE__ALLOCA HAVE___ALLOCA HAVE___CHKSTK HAVE___CHKSTK_MS HAVE____CHKSTK HAVE____CHKSTK_MS HAVE___MAIN HAVE___ASHLDI3 HAVE___ASHRDI3 HAVE___CMPDI2 HAVE___DIVDI3 HAVE___FIXDFDI HAVE___FIXSFDI HAVE___FLOATDIDF HAVE___LSHRDI3 HAVE___MODDI3 HAVE___UDIVDI3 HAVE___UMODDI3; do

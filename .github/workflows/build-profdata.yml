@@ -1,10 +1,8 @@
 name: Build PGO profile
 run-name: PGO profile for r${{inputs.version}}${{inputs.revision}}
-# Produces the PGO profile the cross builds consume -- one per llvm-project tree
-# rather than one per target; see build.sh's BUILD_PROFDATA for why one covers
-# all. Assets land on the "profdata" tag named by the llvm revision, which is
-# what fetch-source.sh looks up, so re-running a release that shares a tree with
-# one already profiled just rewrites an equivalent file.
+# One profile per llvm-project tree, not per target; build.sh's BUILD_PROFDATA
+# says why one covers all. Assets land on the "profdata" tag named by the llvm
+# revision, which is what fetch-source.sh looks up.
 on:
   workflow_dispatch:
     inputs:

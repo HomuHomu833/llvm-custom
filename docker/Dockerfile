@@ -52,15 +52,14 @@ RUN . /etc/os-release \
     && cc --version | head -n1 \
     && c++ --version | head -n1
 
-# TensorFlow for MLGO, in a venv at /opt/tf -- not tidiness: llvm/CMakeLists.txt
+# TensorFlow for MLGO, in a venv at /opt/tf. Not tidiness: llvm/CMakeLists.txt
 # derives the AOT compiler as "${TENSORFLOW_AOT_PATH}/../../../../bin/
 # saved_model_cli", so the package must sit four levels under a prefix that also
 # holds bin/, which a venv gives and dist-packages doesn't.
 #
-# x86_64 wheels are the only ones published, so this is best-effort per host arch
-# like llvm-mingw below: elsewhere the venv is absent and build.sh's probe drops
-# MLGO. On x86_64 the asserts stay hard, so a wheel missing the AOT pieces fails
-# the image rather than 99 builds.
+# Only x86_64 wheels are published, so this is best-effort per host arch like
+# llvm-mingw below. On x86_64 the asserts stay hard: a wheel missing the AOT
+# pieces fails the image rather than 99 builds.
 ARG TENSORFLOW_VERSION=2.21.0
 RUN arch="$(uname -m)"; \
     if [ "$arch" = x86_64 ]; then \
