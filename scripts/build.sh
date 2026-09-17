@@ -14,9 +14,8 @@
 #   ANDROID_API bionic API level (default: 24, riscv64 forced to 35 if lower)
 #   EXTRA_CMAKE_FLAGS  optional extra -D flags for the zstd + LLVM configures
 #   LLVM_BUILD_ID      build id for the vendor string (CI passes the Actions run id)
-#   LLVM_LTO           LLVM_ENABLE_LTO (default: Thin); forced off on macos, and
-#                      any other value lands in the vendor string as LTO
-#   LLVM_PROFDATA_FILE optional PGO profile; its presence lands as PGO
+#   LLVM_LTO           LLVM_ENABLE_LTO (default: Thin); forced off on macos
+#   LLVM_PROFDATA_FILE optional PGO profile
 #   TENSORFLOW_AOT_PATH  tensorflow pip dir; with MLGO_DIR it enables MLGO for
 #                      targets whose triple the AOT compiler accepts
 #   CLANG_VENDOR       overrides the composed vendor string outright
@@ -52,11 +51,10 @@ if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   : "${LLVM_REV:?set LLVM_REV (run fetch-source.sh first)}"
   PROF_BUILD="${PROF_BUILD:-$ROOTDIR/instr}"
   SRC="${SRC:-$ROOTDIR/llvm-project}"
-  # The NDK's clang, not the image's: the raw profile is written by the host
-  # compiler's runtime and read by this tree's llvm-profdata, and
-  # RawInstrProfReader wants an exact version match. The NDK is the same LLVM
-  # release as the tree, so it matches by construction (raw 8 for r25/r26, 9 for
-  # r27, 10 from r28 on -- the image clang only fits the last group).
+  # The NDK's clang, not the image's: RawInstrProfReader wants an exact match
+  # between the runtime that writes the raw profile and this tree's
+  # llvm-profdata, and the NDK is the same LLVM release as the tree (raw 8 for
+  # r25/r26, 9 for r27, 10 from r28 on -- the image clang only fits the last).
   _ndk_clang="${NDK_DIR:-/nonexistent}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
   if [ -z "${PROF_CC:-}" ] && [ -x "$_ndk_clang" ]; then
     PROF_CC="$_ndk_clang"
@@ -65,12 +63,10 @@ if [ "${BUILD_PROFDATA:-0}" = 1 ]; then
   # handles both spellings: .../bin/clang -> clang++, and clang-20 -> clang++-20
   PROF_CXX="${PROF_CXX:-$(echo "$PROF_CC" | sed -E 's@clang(-[0-9]+)?$@clang++\1@')}"
   log "Instrumented build for $LLVM_REV (LLVM ${LLVM_VERSION:-?}) with $PROF_CC"
-  # Only r26 and r27 ship a host libclang_rt.profile; every other NDK has just
-  # the *-android ones, so -fprofile-instr-generate links against a path that
-  # isn't in the package. Build that single library from this tree instead of
-  # borrowing one: same source as the llvm-profdata that reads the raw files, so
-  # the version still matches. Ask clang where it will look rather than guessing,
-  # since the resource dir moved from lib/linux to lib/<triple> around r29.
+  # Only r26/r27 ship a host libclang_rt.profile; elsewhere clang links against a
+  # path the NDK doesn't have. Build it from this tree rather than borrow one, so
+  # the raw version still matches llvm-profdata, and ask clang for the path --
+  # the resource dir moved from lib/linux to lib/<triple> around r29.
   _rt="$("$PROF_CC" -fprofile-instr-generate -x c /dev/null -o /dev/null -### 2>&1 \
          | tr ' ' '\n' | tr -d '"' | grep -m1 'libclang_rt\.profile' || true)"
   if [ -n "$_rt" ] && [ ! -f "$_rt" ]; then
@@ -339,9 +335,7 @@ if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   LLVM_LTO=OFF
 fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # Two probes, both a full link, because LTO is a link-time property and a
-  # compile alone proves nothing. The first asks whether this toolchain links
-  # bitcode at all; the second whether it takes the regalloc advisor.
+  # Probe by linking, not compiling: LTO is a link-time property.
   mkdir -p "$BUILD_DIR"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/lto-probe.c"
   _lto_link() { "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
@@ -350,14 +344,10 @@ if [ "$LLVM_LTO" != OFF ]; then
     log "LTO: $(basename "$CROSS_CC") cannot link -flto=thin, building without"
     LLVM_LTO=OFF
   elif [ ${#MLGO_ARGS[@]} -gt 0 ]; then
-    # ThinLTO defers codegen to link time, so a -mllvm flag only reaches the
-    # register allocator by way of the linker -- and not every linker here takes
-    # it. zig parses linker args against an allowlist and hard-errors on anything
-    # missing from it ("unsupported linker arg: -mllvm"), with no --plugin-opt or
-    # other passthrough to fall back on; a real lld takes -mllvm but can still
-    # reject the value if it was built without the release advisor. Losing the
-    # flag only costs the regalloc model while building; passing it blind costs
-    # the build, so keep it only where it demonstrably links.
+    # The advisor only reaches the register allocator through the linker, and zig
+    # hard-errors on -mllvm: its linker args are an allowlist, with no
+    # --plugin-opt to fall back on. Dropping the flag costs this build's regalloc
+    # model; passing it blind costs the build.
     _adv="-Wl,-mllvm,-regalloc-enable-advisor=release"
     if _lto_link "$_adv"; then
       CROSS_LDFLAGS="$CROSS_LDFLAGS $_adv"
@@ -365,9 +355,8 @@ if [ "$LLVM_LTO" != OFF ]; then
       log "LTO: linker will not take -regalloc-enable-advisor=release, leaving it off"
     fi
   fi
-  # Unprofiled, they don't rate link-time codegen worth its cost. Linux only,
-  # which is where they apply it -- and probed for the same reason as the flag
-  # above, since linux is zig's and its allowlist decides this one too.
+  # Unprofiled, they don't rate link-time codegen worth its cost, and only on
+  # linux. Probed too: linux is zig's, same allowlist.
   if [ "$LLVM_LTO" != OFF ] && [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
     if _lto_link -Wl,--lto-O0; then
       CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
@@ -390,15 +379,12 @@ fi
 #
 #   Android (12285214, +pgo, +bolt, +lto, +mlgo, based on r522817b)
 #
-# All four markers are listed every time and in that order, "+" for applied and
-# "-" for not, so the string says as much by what it denies as by what it claims.
-# "Android" names the distribution and stays. The build id is the Actions run id,
-# which pins the commit, flags and projects behind the binary; Google's would
-# name a build that isn't this one. bolt is always "-": we build the tools and
-# ship them, but nothing here runs the optimizer over the binaries. Each marker
-# reads the setting that survived its probe, so the string cannot advertise work
-# a target quietly dropped. clang adds the trailing space itself, see
-# clang/lib/Basic/CMakeLists.txt.
+# All four markers, always, in that order, "+" applied and "-" not. The build id
+# is the Actions run id, which pins the commit and flags behind the binary;
+# Google's would name a build that isn't this one. bolt is always "-": we ship
+# the tools but never run the optimizer. The rest read the value that survived
+# their probe, so the string can't claim work a target dropped. clang adds the
+# trailing space, see clang/lib/Basic/CMakeLists.txt.
 _mark() { if [ "$1" = 1 ]; then printf '+%s' "$2"; else printf -- '-%s' "$2"; fi; }
 _on_pgo=0; if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then _on_pgo=1; fi
 _on_lto=0; if [ "$LLVM_LTO" != OFF ]; then _on_lto=1; fi
