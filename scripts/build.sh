@@ -302,13 +302,16 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
   # tf_compile only proves the model translates. The Eigen-heavy runtime built
   # beside it is the part that breaks: on aarch64 its convolution path
   # static-asserts on the NEON register block size (nr is 8, the assert wants 4).
-  # Compile one of those TUs here rather than fail ten minutes in. It has to be
-  # an f32 one: only the float path instantiates the gemm_pack_rhs specialisation
-  # that asserts, so the f16 and dot_lib TUs compile fine on aarch64 and prove
-  # nothing. Sorted, because unsorted find order picked one of those.
+  # Compile one of those TUs here rather than fail ten minutes in. It has to be a
+  # convolution one, and f32 for preference: only the float path instantiates the
+  # gemm_pack_rhs specialisation that asserts, so f16 and the matmul TUs compile
+  # fine on aarch64 and prove nothing. The names move between releases, which is
+  # why these are globs and not exact: 2.18 has convolution_thunk_f32.cc, 2.21
+  # convolution_lib_f32_2d.cc. Sorted, because unsorted find order picked an f16.
   _find_tu() { find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name "$1" 2>/dev/null | sort | head -n1; }
-  _tu="$(_find_tu 'convolution_lib_f32*.cc')"
-  [ -n "$_tu" ] || _tu="$(_find_tu 'convolution_lib*.cc')"
+  _tu="$(_find_tu '*conv*f32*.cc')"
+  [ -n "$_tu" ] || _tu="$(_find_tu '*conv*.cc')"
+  [ -n "$_tu" ] || _tu="$(_find_tu 'eigen_contraction_kernel.cc')"
   [ -n "$_tu" ] || _tu="$(_find_tu '*.cc')"
   if ! { [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
        --dir "$MLGO_DIR/inlining-Oz-chromium" --tag_set serve \
