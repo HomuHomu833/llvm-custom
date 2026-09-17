@@ -158,9 +158,9 @@ fetch_unpack() {
       return 0
     fi
     i=$((i + 1))
-    [ "$i" -ge 5 ] && { echo "fetch_unpack: $url still incomplete after $i attempts" >&2; return 1; }
-    echo "fetch_unpack: $(basename "$archive") came down incomplete, retry $i/5 in $((5 * i))s..." >&2
-    sleep $((5 * i))
+    [ "$i" -ge 8 ] && { echo "fetch_unpack: $url still incomplete after $i attempts" >&2; return 1; }
+    echo "fetch_unpack: $(basename "$archive") came down incomplete, retry $i/8 in $((15 * i))s..." >&2
+    sleep $((15 * i))
   done
 }
 
