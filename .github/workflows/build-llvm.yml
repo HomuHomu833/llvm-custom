@@ -36,7 +36,7 @@ on:
         type: boolean
         default: true
       lto:
-        description: "ThinLTO; applied everywhere except macos"
+        description: "Enable ThinLTO"
         required: false
         type: boolean
         default: true
