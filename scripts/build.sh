@@ -356,27 +356,38 @@ if [ "$LLVM_LTO" != OFF ] &&
   LLVM_LTO=OFF
 fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # Probe by linking, not compiling: LTO is a link-time property. C++ with a
-  # throw, so the probe drags in libc++abi's exception machinery the real link
-  # pulls, and a double, so the bitcode carries an FP ABI module flag.
+  # Probe by linking, not compiling: LTO is a link-time property. Two programs:
+  # lto-a is the least that exercises LTO, with a double so the bitcode carries
+  # an FP ABI module flag; lto-b adds a throw, dragging in the libc++abi
+  # exception machinery the real link pulls even under LLVM_ENABLE_EH=OFF.
+  #
+  # Each is linked without LTO first. A target that cannot link the probe at all
+  # says nothing about LTO, and blaming LTO for it drops the optimisation for a
+  # reason that was never LTO. Same two-step as the PGO probe above.
   mkdir -p "$BUILD_DIR"
+  printf '%s\n' 'double f(double x){return x*2.0;}' \
+                'int main(){ return (int)f(1.5); }' > "$BUILD_DIR/lto-a.cc"
   printf '%s\n' '#include <stdexcept>' \
                 'double f(double x){return x*2.0;}' \
                 'int main(){ try { if (f(1.5) > 0) throw std::runtime_error("x"); }' \
                 '            catch (const std::exception &) { return 0; } return 0; }' \
-                > "$BUILD_DIR/lto-probe.cc"
-  _lto_link() { "$CROSS_CXX" $CROSS_CXXFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
-    "$BUILD_DIR/lto-probe.cc" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
-  if ! _lto_link; then
-    log "LTO: $(basename "$CROSS_CXX") cannot link -flto=thin, building without"
-    LLVM_LTO=OFF
-  elif [ ${#MLGO_ARGS[@]} -gt 0 ]; then
+                > "$BUILD_DIR/lto-b.cc"
+  _probe() { "$CROSS_CXX" $CROSS_CXXFLAGS $CROSS_LDFLAGS "${@:2}" \
+    "$BUILD_DIR/$1" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
+  for _p in lto-a.cc lto-b.cc; do
+    if _probe "$_p" && ! _probe "$_p" -flto=thin; then
+      log "LTO: $(basename "$CROSS_CXX") cannot link $_p with -flto=thin, building without"
+      LLVM_LTO=OFF
+      break
+    fi
+  done
+  if [ "$LLVM_LTO" != OFF ] && [ ${#MLGO_ARGS[@]} -gt 0 ]; then
     # The advisor only reaches the register allocator through the linker, and zig
     # hard-errors on -mllvm: its linker args are an allowlist, with no
     # --plugin-opt to fall back on. Dropping the flag costs this build's regalloc
     # model; passing it blind costs the build.
     _adv="-Wl,-mllvm,-regalloc-enable-advisor=release"
-    if _lto_link "$_adv"; then
+    if _probe lto-a.cc -flto=thin "$_adv"; then
       CROSS_LDFLAGS="$CROSS_LDFLAGS $_adv"
     else
       log "LTO: linker will not take -regalloc-enable-advisor=release, leaving it off"
@@ -385,13 +396,13 @@ if [ "$LLVM_LTO" != OFF ]; then
   # Unprofiled, they don't rate link-time codegen worth its cost, and only on
   # linux. Probed too: linux is zig's, same allowlist.
   if [ "$LLVM_LTO" != OFF ] && [ -z "${LLVM_PROFDATA_FILE:-}" ] && [ "$PLATFORM" = linux ]; then
-    if _lto_link -Wl,--lto-O0; then
+    if _probe lto-a.cc -flto=thin -Wl,--lto-O0; then
       CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,--lto-O0"
     else
       log "LTO: linker will not take --lto-O0, leaving codegen at default"
     fi
   fi
-  rm -f "$BUILD_DIR/lto-probe.cc" "$BUILD_DIR/lto-probe"
+  rm -f "$BUILD_DIR/lto-a.cc" "$BUILD_DIR/lto-b.cc" "$BUILD_DIR/lto-probe"
 fi
 if [ "$LLVM_LTO" != OFF ]; then
   # They widen this to min(ncpu/2, 16), sized for their build machines. On a
