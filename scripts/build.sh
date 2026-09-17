@@ -294,8 +294,8 @@ fi
 # is cross-built alongside it, so two things decide whether a target can do MLGO:
 # which backends the installed wheel carries, and whether that Eigen-heavy
 # runtime survives the target's endianness and SIMD. Neither is predictable from
-# a target list, and a failing tf_compile fails the whole build, so probe with a
-# real AOT compile and let a target that can't do it still ship a toolchain.
+# a target list and either one fails the whole build, so probe both and let a
+# target that can't do it still ship a toolchain.
 MLGO_ARGS=()
 # tensorflow lives in a venv at /opt/tf; ask it where, rather than hardcoding a
 # python version into the path.
@@ -304,10 +304,23 @@ TENSORFLOW_AOT_PATH="${TENSORFLOW_AOT_PATH:-$(/opt/tf/bin/python -c \
 if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_runtime_src" ]; then
   mkdir -p "$BUILD_DIR"
   _sm="$(cd "$TENSORFLOW_AOT_PATH/../../../.." && pwd)/bin/saved_model_cli"
-  if [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
+  # tf_compile only proves the model translates for this triple. The Eigen-heavy
+  # runtime cross-built beside it is a separate question: on aarch64 the
+  # convolution path static-asserts on the NEON register block size (nr is 8, the
+  # assert wants 4). Compile one of those TUs too -- that is where it breaks,
+  # otherwise ten minutes into the build rather than here.
+  _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name 'convolution_lib*.cc' 2>/dev/null | head -n1)"
+  [ -n "$_tu" ] || _tu="$(find "$TENSORFLOW_AOT_PATH/xla_aot_runtime_src" -name '*.cc' 2>/dev/null | head -n1)"
+  if ! { [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
        --dir "$MLGO_DIR/inlining-Oz-chromium" --tag_set serve \
        --signature_def_key action --output_prefix "$BUILD_DIR/mlgo-probe" \
-       --cpp_class ProbeModel --target_triple "$TRIPLE" >/dev/null 2>&1; then
+       --cpp_class ProbeModel --target_triple "$TRIPLE" >/dev/null 2>&1; }; then
+    log "MLGO: $TRIPLE not supported by the AOT compiler, building without"
+  elif [ -n "$_tu" ] && ! "$CROSS_CXX" $CROSS_CXXFLAGS -std=c++17 -w \
+       -I"$TENSORFLOW_AOT_PATH/include" -c "$_tu" \
+       -o "$BUILD_DIR/mlgo-tu.o" >/dev/null 2>&1; then
+    log "MLGO: $TRIPLE cannot build the XLA runtime, building without"
+  else
     log "MLGO: $TRIPLE accepted by the AOT compiler"
     MLGO_ARGS=(
       -DTENSORFLOW_AOT_PATH="$TENSORFLOW_AOT_PATH"
@@ -317,10 +330,8 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
       # changing it unconditionally would move every other target's host triple.
       -DLLVM_HOST_TRIPLE="$TRIPLE"
     )
-  else
-    log "MLGO: $TRIPLE not supported by the AOT compiler, building without"
   fi
-  rm -f "$BUILD_DIR/mlgo-probe".*
+  rm -f "$BUILD_DIR/mlgo-probe".* "$BUILD_DIR/mlgo-tu.o"
 fi
 
 # --- LTO --------------------------------------------------------------------
@@ -335,9 +346,14 @@ if [ "$LLVM_LTO" != OFF ] && [ "$PLATFORM" = macos ]; then
   LLVM_LTO=OFF
 fi
 if [ "$LLVM_LTO" != OFF ]; then
-  # Probe by linking, not compiling: LTO is a link-time property.
+  # Probe by linking, not compiling: LTO is a link-time property. The double is
+  # load-bearing -- it makes the bitcode carry an FP ABI module flag, which is
+  # how mips soft-float shows up ("floating point ABI '-mdouble-float' is
+  # incompatible with target floating point ABI '-msoft-float'"). An integer-only
+  # probe links clean there and the real build dies at llvm-tblgen.
   mkdir -p "$BUILD_DIR"
-  echo 'int main(void){return 0;}' > "$BUILD_DIR/lto-probe.c"
+  printf '%s\n' 'double f(double x){return x*2.0;}' \
+                'int main(void){return (int)f(1.5);}' > "$BUILD_DIR/lto-probe.c"
   _lto_link() { "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS -flto=thin "$@" \
     "$BUILD_DIR/lto-probe.c" -o "$BUILD_DIR/lto-probe" >/dev/null 2>&1; }
   if ! _lto_link; then
