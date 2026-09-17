@@ -386,19 +386,25 @@ if [ "$LLVM_LTO" != OFF ]; then
 fi
 
 # --- vendor string ----------------------------------------------------------
-# llvm_android's shape, "Android (<build id>, <opts>, based on <release>)", with
-# our identity in it. "Android" names the distribution and stays. The build id is
-# the Actions run id, which pins the commit, flags and projects behind the
-# binary; Google's would name a build that isn't this one. <opts> is derived from
-# the settings above so it can't advertise work we didn't do -- which is also why
-# polly and bolt aren't in it, being a pass plugin and a tool rather than
-# something clang was built with. clang adds the trailing space itself, see
+# llvm_android's shape with our identity in it:
+#
+#   Android (12285214, +pgo, +bolt, +lto, +mlgo, based on r522817b)
+#
+# All four markers are listed every time and in that order, "+" for applied and
+# "-" for not, so the string says as much by what it denies as by what it claims.
+# "Android" names the distribution and stays. The build id is the Actions run id,
+# which pins the commit, flags and projects behind the binary; Google's would
+# name a build that isn't this one. bolt is always "-": we build the tools and
+# ship them, but nothing here runs the optimizer over the binaries. Each marker
+# reads the setting that survived its probe, so the string cannot advertise work
+# a target quietly dropped. clang adds the trailing space itself, see
 # clang/lib/Basic/CMakeLists.txt.
-VENDOR_OPTS=""
-if [ "$LLVM_LTO" != OFF ]; then VENDOR_OPTS="LTO"; fi
-if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}PGO"; fi
-if [ ${#MLGO_ARGS[@]} -gt 0 ]; then VENDOR_OPTS="${VENDOR_OPTS:+$VENDOR_OPTS+}MLGO"; fi
-CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }${VENDOR_OPTS:+$VENDOR_OPTS, }based on ${CLANG_RELEASE:-unknown})}"
+_mark() { if [ "$1" = 1 ]; then printf '+%s' "$2"; else printf -- '-%s' "$2"; fi; }
+_on_pgo=0; if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then _on_pgo=1; fi
+_on_lto=0; if [ "$LLVM_LTO" != OFF ]; then _on_lto=1; fi
+_on_mlgo=0; if [ ${#MLGO_ARGS[@]} -gt 0 ]; then _on_mlgo=1; fi
+VENDOR_OPTS="$(_mark "$_on_pgo" pgo), $(_mark 0 bolt), $(_mark "$_on_lto" lto), $(_mark "$_on_mlgo" mlgo)"
+CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }$VENDOR_OPTS, based on ${CLANG_RELEASE:-unknown})}"
 log "Vendor: $CLANG_VENDOR"
 
 # --- zlib + zstd (static, bundled) -----------------------------------------
