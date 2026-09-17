@@ -60,6 +60,12 @@ RUN . /etc/os-release \
 # Only x86_64 wheels are published, so this is best-effort per host arch like
 # llvm-mingw below. On x86_64 the asserts stay hard: a wheel missing the AOT
 # pieces fails the image rather than 99 builds.
+#
+# The eigen convolution headers hand-pack the rhs and assert nr == 4, which is 8
+# on aarch64, so the AOT runtime would not compile there and every aarch64 target
+# lost MLGO. Those packers already sit behind a switch PowerPC turns off, so the
+# generic path is a supported fallback; extend the same switch to aarch64. The
+# models are small MLPs, so the convolution packing is not what makes them fast.
 ARG TENSORFLOW_VERSION=2.18.0
 RUN arch="$(uname -m)"; \
     if [ "$arch" = x86_64 ]; then \
@@ -67,7 +73,15 @@ RUN arch="$(uname -m)"; \
         && /opt/tf/bin/pip install --no-cache-dir "tensorflow-cpu==${TENSORFLOW_VERSION}" \
         && find /opt/tf -name '__pycache__' -type d -prune -exec rm -rf {} + \
         && test -d "$(/opt/tf/bin/python -c 'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))')/xla_aot_runtime_src" \
-        && test -x /opt/tf/bin/saved_model_cli; \
+        && test -x /opt/tf/bin/saved_model_cli \
+        && tf="$(/opt/tf/bin/python -c 'import tensorflow,os;print(os.path.dirname(tensorflow.__file__))')" \
+        && n=0 \
+        && for h in $(grep -rl 'EIGEN_STATIC_ASSERT((nr == 4)' "$tf/include"); do \
+               sed -i 's@^#if !EIGEN_ALTIVEC_USE_CUSTOM_PACK$@#if !EIGEN_ALTIVEC_USE_CUSTOM_PACK \&\& !defined(__aarch64__)@' "$h" \
+               && grep -q '!defined(__aarch64__)' "$h" \
+               && n=$((n+1)) && echo "patched $h"; \
+           done \
+        && test "$n" -ge 2; \
     else \
         echo "WARNING: tensorflow-cpu has no $arch wheel; MLGO will be unavailable on this host"; \
     fi
