@@ -67,7 +67,7 @@ unpack() {
 # way out. Usage: fetch_unpack URL ARCHIVE [DEST]
 #
 # aria2c's own retries cannot see a truncated download. Endpoints that generate
-# archives on the fly (gitiles' +archive, codeload) stream them chunked with
+# archives on the fly, such as codeload, stream them chunked with
 # no Content-Length (aria2 logs the size as "0B/0B"), so when the far end cuts
 # the stream short there is no expected size to compare against: aria2 prints
 # "(OK):download completed" and exits 0 on a 600KiB truncation of a 200MiB
@@ -89,6 +89,38 @@ fetch_unpack() {
     echo "fetch_unpack: $(basename "$archive") came down incomplete, retry $i/8 in $((15 * i))s..." >&2
     sleep $((15 * i))
   done
+}
+
+# Check out REF of REPO into DEST, or only SUBDIR of it when SUBDIR is given.
+# gitiles builds its +archive tarballs on the fly and streams them with no
+# Content-Length, so a short read arrives as a silent truncation that only
+# surfaces at unpack time; a packfile carries its own checksum and a bad
+# transfer fails on the spot. SUBDIR pulls trees without blobs and checks out
+# sparsely, so a path inside a huge repo costs megabytes instead of gigabytes.
+# DEST is left without a .git. Usage: git_fetch REPO REF DEST [SUBDIR]
+git_fetch() {
+  local repo="$1" ref="$2" dest="$3" sub="${4:-}" work="$3" filter="" i=0
+  [ -n "$sub" ] && { work="$dest.gitsrc"; filter="--filter=blob:none"; }
+  rm -rf "$work" "$dest"
+  git init -q "$work"
+  git -C "$work" remote add origin "$repo"
+  if [ -n "$sub" ]; then
+    git -C "$work" config core.sparseCheckout true
+    printf '/%s/*\n' "$sub" > "$work/.git/info/sparse-checkout"
+  fi
+  until git -C "$work" fetch -q --depth 1 $filter origin "$ref"; do
+    i=$((i + 1))
+    [ "$i" -ge 5 ] && { echo "git_fetch: $repo $ref failed after $i attempts" >&2; return 1; }
+    echo "git_fetch: $repo $ref failed, retry $i/5 in $((5 * i))s..." >&2
+    sleep $((5 * i))
+  done
+  git -C "$work" checkout -q FETCH_HEAD
+  rm -rf "$work/.git"
+  if [ -n "$sub" ]; then
+    mkdir -p "$dest"
+    cp -a "$work/$sub/." "$dest/"
+    rm -rf "$work"
+  fi
 }
 
 if [ ! -d "$NDK_DIR" ]; then
@@ -123,8 +155,7 @@ log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV / based on $CLAN
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
   rm -rf "$SRC"
-  fetch_unpack "https://android.googlesource.com/toolchain/llvm-project/+archive/$LLVM_REV.tar.gz" \
-    "$SRC.tar.gz" "$SRC"
+  git_fetch "https://android.googlesource.com/toolchain/llvm-project" "$LLVM_REV" "$SRC"
 fi
 
 # Make $SRC its own git repo so `git apply` resolves against it, not an outer
@@ -132,9 +163,7 @@ fi
 git init -q "$SRC"
 
 log "Applying llvm_android patches"
-rm -rf "$ROOTDIR/llvm_android"
-git clone --quiet https://android.googlesource.com/toolchain/llvm_android "$ROOTDIR/llvm_android"
-git -C "$ROOTDIR/llvm_android" checkout --quiet "$ANDROID_REV"
+git_fetch "https://android.googlesource.com/toolchain/llvm_android" "$ANDROID_REV" "$ROOTDIR/llvm_android"
 mapfile -t PATCHES < <(grep -oP 'patches/\S+' "$CLANG_SOURCE_INFO" | sed 's/)$//')
 for p in "${PATCHES[@]:-}"; do
   [ -n "$p" ] || continue
@@ -351,13 +380,16 @@ fi
 # Whether a host can AOT-compile them is build.sh's probe to answer.
 MLGO_DIR="${MLGO_DIR:-}"
 if [ -z "$MLGO_DIR" ] && [ "${ENABLE_MLGO:-1}" = 1 ]; then
-  _mb="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/mlgo-models/arm64"
   MLGO_DIR="$ROOTDIR/mlgo"
+  _have=1
   for _m in inlining-Oz-chromium regalloc-evict-aosp; do
-    [ -f "$MLGO_DIR/$_m/saved_model.pb" ] && continue
-    log "Fetching MLGO model $_m"
-    fetch_unpack "$_mb/$_m.tar.gz" "$ROOTDIR/$_m.tar.gz" "$MLGO_DIR/$_m"
+    [ -f "$MLGO_DIR/$_m/saved_model.pb" ] || _have=0
   done
+  if [ "$_have" = 0 ]; then
+    log "Fetching MLGO models"
+    git_fetch "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86" \
+      "refs/heads/mirror-goog-main-llvm-toolchain-source" "$MLGO_DIR" "mlgo-models/arm64"
+  fi
 fi
 
 cat > "$ROOTDIR/.build-env" <<EOF

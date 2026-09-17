@@ -142,7 +142,7 @@ unpack() {
 # way out. Usage: fetch_unpack URL ARCHIVE [DEST]
 #
 # aria2c's own retries cannot see a truncated download. Endpoints that generate
-# archives on the fly (gitiles' +archive, codeload) stream them chunked with no
+# archives on the fly, such as codeload, stream them chunked with no
 # Content-Length, so there is no expected size to compare against: aria2 exits 0
 # on a 600KiB truncation of a 200MiB archive and the damage surfaces later as
 # "gzip: stdin: unexpected end of file". Unpacking is the only integrity check,
