@@ -252,17 +252,20 @@ fi
 # clang-ast-dump exists only to generate ASTNodeAPI.json, and a cross build never
 # runs it: CMAKE_CROSSCOMPILING is in the guard that swaps in
 # EmptyNodeIntrospection.inc and forces CLANG_TOOLING_BUILD_AST_INTROSPECTION
-# off. add_subdirectory(DumpTool) sits outside that guard, so the tool is still
-# built and linked for the target. On bionic aarch64 that link fails: the static
-# binary grows until two libc.a members are 1.9MB apart, past the 1MB reach of
-# R_AARCH64_CONDBR19, which lld cannot thunk. BUILD_PROFDATA is native and does
-# take the generating branch, so it keeps the tool.
-if [ "${BUILD_PROFDATA:-0}" != 1 ]; then
-  _tooling="$SRC/clang/lib/Tooling/CMakeLists.txt"
-  if [ -f "$_tooling" ] && grep -q '^add_subdirectory(DumpTool)$' "$_tooling"; then
-    sed -i '/^add_subdirectory(DumpTool)$/d' "$_tooling"
-    log "clang: dropped clang-ast-dump, unused in a cross build"
-  fi
+# off. The target is added outside that guard though, so it was built and linked
+# for the target with nothing consuming it, and on bionic aarch64 that link
+# fails: the static binary grows until two libc.a members are 1.9MB apart, past
+# the 1MB reach of R_AARCH64_CONDBR19, which lld cannot thunk.
+#
+# EXCLUDE_FROM_ALL, not dropping the subdirectory. A cross build still spawns a
+# NATIVE sub-build over this same tree, that one is not cross-compiling, and it
+# takes the generating branch: removing the target left it evaluating
+# $<TARGET_FILE:clang-ast-dump> against nothing. Excluded from all it stays
+# available to whoever depends on it and out of everyone else's build.
+_dump="$SRC/clang/lib/Tooling/DumpTool/CMakeLists.txt"
+if [ -f "$_dump" ] && ! grep -q 'EXCLUDE_FROM_ALL' "$_dump"; then
+  printf '\nset_target_properties(clang-ast-dump PROPERTIES EXCLUDE_FROM_ALL ON)\n' >> "$_dump"
+  log "clang: clang-ast-dump excluded from all, unused in a cross build"
 fi
 
 # bolt_rt, the runtime BOLT injects into instrumented binaries, is Linux-only:
