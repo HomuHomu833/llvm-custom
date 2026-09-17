@@ -604,10 +604,66 @@ if [ "$PLATFORM" = linux ] && [[ "$TARGET" != *musl* ]]; then
   args+=(-DHAVE_BUILTIN_THREAD_POINTER=0)
 fi
 
+# --- distribution components ------------------------------------------------
+# Build the tools the NDK ships and nothing else. A default build links 122
+# executables per target while the NDK carries 46, and under LTO each of the
+# other 76 costs a full codegen link. That includes llvm-tblgen and clang-tblgen
+# built for the target, which a cross build cannot even run; the NATIVE
+# sub-build supplies the ones it uses.
+#
+# Components are not one per binary. bolt puts all of its tools under a single
+# "bolt", and the install step makes the rest as symlinks: clang++ off clang,
+# ld and ld.lld and ld64.lld and lld-link off lld, ranlib and lib off llvm-ar,
+# readelf off llvm-readobj, strip off llvm-objcopy, addr2line off
+# llvm-symbolizer, windres off llvm-rc.
+#
+# Each entry is gated on its directory existing, because an unknown component is
+# a configure-time SEND_ERROR and these eight trees span LLVM 14 to 21. Pruning
+# beats pinning a list that only suits the newest.
+DIST=()
+_want() { [ -d "$SRC/$2" ] && DIST+=("$1"); return 0; }
+_want clang                  clang/tools/driver
+_want clang-resource-headers clang/lib/Headers
+_want clang-check            clang/tools/clang-check
+_want clang-format           clang/tools/clang-format
+_want scan-build             clang/tools/scan-build
+_want scan-view              clang/tools/scan-view
+_want scan-build-py          clang/tools/scan-build-py
+_want clang-tidy             clang-tools-extra/clang-tidy
+_want clangd                 clang-tools-extra/clangd
+_want lld                    lld
+_want bolt                   bolt
+for _t in dsymutil sancov sanstats llvm-config llvm-ar llvm-as llvm-cfi-verify \
+          llvm-cov llvm-cxxfilt llvm-dis llvm-dwarfdump llvm-dwp llvm-ifs \
+          llvm-link llvm-lipo llvm-ml llvm-modextract llvm-nm llvm-objcopy \
+          llvm-objdump llvm-profdata llvm-rc llvm-readobj llvm-size \
+          llvm-strings llvm-symbolizer; do
+  _want "$_t" "llvm/tools/$_t"
+done
+args+=(-DLLVM_DISTRIBUTION_COMPONENTS="$(IFS=';'; printf '%s' "${DIST[*]}")")
+log "Distribution: ${#DIST[@]} components"
+
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 log "Building + installing"
-cmake --build "$BUILD_DIR" --target install
+cmake --build "$BUILD_DIR" --target install-distribution
+
+# Every ELF tool the NDK ships has to come back out, or assemble_ndk silently
+# keeps Google's copy: it only replaces a file when one of the same name exists
+# in ours. lldb went with the debuggers and yasm comes from android-ndk-custom.
+_ndk_bin="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+if [ -d "$_ndk_bin" ]; then
+  _missing=""
+  for _f in "$_ndk_bin"/*; do
+    _b="$(basename "$_f")"
+    case "$_b" in lldb*|yasm) continue ;; esac
+    file -bL "$_f" 2>/dev/null | grep -q ELF || continue
+    [ -e "$OUT/bin/$_b" ] || _missing="$_missing $_b"
+  done
+  [ -z "$_missing" ] || {
+    echo "install-distribution did not produce:$_missing" >&2; exit 1; }
+  log "All of the NDK's tools accounted for"
+fi
 
 # strip installed binaries one at a time (the zig-as-llvm strip wrapper takes
 # only one file arg).
