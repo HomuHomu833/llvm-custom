@@ -256,20 +256,34 @@ export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_
 # JUMP26 but not for conditional branches. Nothing we pass the compiler helps:
 # the instruction is already assembled into Google's prebuilt libc.a, and an
 # AArch64 code model governs address materialisation and BL versus BLR, never
-# b.cond. Ordering is the only lever left. Naming one symbol from each object
-# hoists both whole sections to the front of .text, adjacent, because assembly
-# .text is not split per function. Probed, since it costs a flag if the linker
+# b.cond. Ordering is the only lever left: named symbols hoist their whole
+# input section to the front of .text, so the stubs and their target end up
+# adjacent.
+#
+# bionic assembles one object per syscall, so naming a single stub moves that
+# stub and leaves the other few hundred where they were. The file has to name
+# one symbol from every member that branches to __set_errno_internal, which
+# libc.a itself can be asked for. Probed, since it costs a flag if the linker
 # turns out not to take it.
 if [ "$PLATFORM" = bionic ]; then
   mkdir -p "$BUILD_DIR"
-  printf '%s\n' __set_errno_internal getuid > "$BUILD_DIR/symbol-order.txt"
+  printf '%s\n' __set_errno_internal > "$BUILD_DIR/symbol-order.txt"
+  _libc="$TC/sysroot/usr/lib/$TARGET/libc.a"
+  if [ -f "$_libc" ] && [ -x "$TC/bin/llvm-nm" ]; then
+    "$TC/bin/llvm-nm" --print-file-name "$_libc" 2>/dev/null | awk '
+      match($0, /\[[^]]*\]:/) { mem = substr($0, RSTART + 1, RLENGTH - 3) }
+      / U __set_errno_internal$/ { ref[mem] = 1; next }
+      $3 ~ /^[TtWw]$/ && !(mem in first) { first[mem] = $4 }
+      END { for (m in ref) if (m in first) print first[m] }
+    ' >> "$BUILD_DIR/symbol-order.txt"
+  fi
   _so="-Wl,--symbol-ordering-file=$BUILD_DIR/symbol-order.txt -Wl,--no-warn-symbol-ordering"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/so-probe.c"
   # shellcheck disable=SC2086
   if "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS $_so \
        "$BUILD_DIR/so-probe.c" -o "$BUILD_DIR/so-probe" >/dev/null 2>&1; then
     CROSS_LDFLAGS="$CROSS_LDFLAGS $_so"
-    log "bionic: pinning __set_errno_internal next to the syscall stubs"
+    log "bionic: pinning $(wc -l < "$BUILD_DIR/symbol-order.txt") symbols next to __set_errno_internal"
   else
     log "bionic: linker will not take --symbol-ordering-file, leaving layout alone"
   fi
@@ -625,17 +639,26 @@ fi
 # being built: the set moves between releases, and clang-scan-deps, llvm-ifs,
 # llvm-ml, llvm-lipo, llvm-dlltool and wasm-ld are each in some and not others.
 #
-# Components are not one per binary. bolt puts all of its tools under a single
-# "bolt", and the install step makes the rest as symlinks: clang++ off clang,
-# ld and ld.lld and ld64.lld and lld-link and wasm-ld off lld, ranlib and lib
-# and dlltool off llvm-ar, readelf off llvm-readobj, strip off llvm-objcopy,
-# addr2line off llvm-symbolizer, windres off llvm-rc, perf2bolt off llvm-bolt.
+# Components are not one per binary, and which way a symlink goes depends on how
+# it was declared. llvm_install_symlink takes ALWAYS_GENERATE to mean the parent
+# owns the symlink and its bare name to mean the symlink is its own component:
+# lld passes ALWAYS_GENERATE so ld.lld, ld64.lld, lld-link and wasm-ld ride on
+# "lld", and bolt names COMPONENT bolt so llvm-bolt, merge-fdata, perf2bolt and
+# llvm-boltdiff ride on "bolt", but llvm-ar and friends pass neither, so
+# llvm-ranlib, llvm-lib, llvm-strip, llvm-readelf, llvm-addr2line and
+# llvm-windres each have to be asked for by name. clang++ rides on clang.
 #
 # Each entry is gated on its directory existing, because an unknown component is
 # a configure-time SEND_ERROR and these eight trees span LLVM 14 to 21. Pruning
-# beats pinning a list that only suits the newest.
+# beats pinning a list that only suits the newest. Trailing arguments are the
+# symlinks that tool owns, gated with it.
 DIST=()
-_want() { [ -d "$SRC/$2" ] && DIST+=("$1"); return 0; }
+_want() {
+  [ -d "$SRC/$2" ] || return 0
+  DIST+=("$1"); shift 2
+  [ "$#" -gt 0 ] && DIST+=("$@")
+  return 0
+}
 _want clang                  clang/tools/driver
 _want clang-resource-headers clang/lib/Headers
 _want clang-check            clang/tools/clang-check
@@ -648,13 +671,22 @@ _want clang-tidy             clang-tools-extra/clang-tidy
 _want clangd                 clang-tools-extra/clangd
 _want lld                    lld
 _want bolt                   bolt
-for _t in dsymutil sancov sanstats llvm-config llvm-ar llvm-as llvm-cfi-verify \
+_want llvm-ar         llvm/tools/llvm-ar         llvm-ranlib llvm-lib llvm-dlltool
+_want llvm-objcopy    llvm/tools/llvm-objcopy    llvm-strip
+_want llvm-rc         llvm/tools/llvm-rc         llvm-windres
+_want llvm-readobj    llvm/tools/llvm-readobj    llvm-readelf
+_want llvm-symbolizer llvm/tools/llvm-symbolizer llvm-addr2line
+for _t in dsymutil sancov sanstats llvm-config llvm-as llvm-cfi-verify \
           llvm-cov llvm-cxxfilt llvm-dis llvm-dwarfdump llvm-dwp llvm-ifs \
-          llvm-link llvm-lipo llvm-ml llvm-modextract llvm-nm llvm-objcopy \
-          llvm-objdump llvm-profdata llvm-rc llvm-readobj llvm-size \
-          llvm-strings llvm-symbolizer; do
+          llvm-link llvm-lipo llvm-ml llvm-modextract llvm-nm \
+          llvm-objdump llvm-profdata llvm-size llvm-strings; do
   _want "$_t" "llvm/tools/$_t"
 done
+# ld is not one of lld's four default symlinks, but the NDK ships it and
+# assemble_ndk only replaces a name it already has.
+if [ -d "$SRC/lld" ]; then
+  args+=(-DLLD_SYMLINKS_TO_CREATE="lld-link;ld.lld;ld64.lld;wasm-ld;ld")
+fi
 args+=(-DLLVM_DISTRIBUTION_COMPONENTS="$(IFS=';'; printf '%s' "${DIST[*]}")")
 log "Distribution: ${#DIST[@]} components"
 
