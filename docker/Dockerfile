@@ -60,7 +60,13 @@ RUN . /etc/os-release \
 # Only x86_64 wheels are published, so this is best-effort per host arch like
 # llvm-mingw below. On x86_64 the asserts stay hard: a wheel missing the AOT
 # pieces fails the image rather than 99 builds.
-ARG TENSORFLOW_VERSION=2.21.0
+#
+# Pinned to what llvm_android's own image installs, see its
+# docker/requirements.txt. 2.21's xla_aot_runtime_src references absl symbols
+# that LLVM's tf_runtime build never links, so every target the MLGO probe
+# accepts died linking clang-check on "undefined symbol:
+# absl::lts_20250814::log_internal::LogMessageFatal".
+ARG TENSORFLOW_VERSION=2.18.0
 RUN arch="$(uname -m)"; \
     if [ "$arch" = x86_64 ]; then \
         python3 -m venv /opt/tf \
