@@ -270,12 +270,22 @@ if [ "$PLATFORM" = bionic ]; then
   printf '%s\n' __set_errno_internal > "$BUILD_DIR/symbol-order.txt"
   _libc="$TC/sysroot/usr/lib/$TARGET/libc.a"
   if [ -f "$_libc" ] && [ -x "$TC/bin/llvm-nm" ]; then
+    # --print-file-name prefixes every line with "<archive>:<member>:"; the
+    # bracketed form only shows up under --format=posix, which reorders the
+    # columns as well.
     "$TC/bin/llvm-nm" --print-file-name "$_libc" 2>/dev/null | awk '
-      match($0, /\[[^]]*\]:/) { mem = substr($0, RSTART + 1, RLENGTH - 3) }
+      { mem = $1; sub(/:$/, "", mem) }
       / U __set_errno_internal$/ { ref[mem] = 1; next }
       $3 ~ /^[TtWw]$/ && !(mem in first) { first[mem] = $4 }
       END { for (m in ref) if (m in first) print first[m] }
     ' >> "$BUILD_DIR/symbol-order.txt"
+  fi
+  # A parse that silently yields nothing is what shipped last time. Only
+  # aarch64 has to have the ordering work, so only aarch64 refuses to go on.
+  _sn="$(wc -l < "$BUILD_DIR/symbol-order.txt")"
+  if [ "$_sn" -lt 16 ] && [ "${TARGET#aarch64}" != "$TARGET" ]; then
+    echo "bionic: only $_sn symbols read out of $_libc, ordering would be a no-op" >&2
+    exit 1
   fi
   _so="-Wl,--symbol-ordering-file=$BUILD_DIR/symbol-order.txt -Wl,--no-warn-symbol-ordering"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/so-probe.c"
@@ -283,7 +293,7 @@ if [ "$PLATFORM" = bionic ]; then
   if "$CROSS_CC" $CROSS_CFLAGS $CROSS_LDFLAGS $_so \
        "$BUILD_DIR/so-probe.c" -o "$BUILD_DIR/so-probe" >/dev/null 2>&1; then
     CROSS_LDFLAGS="$CROSS_LDFLAGS $_so"
-    log "bionic: pinning $(wc -l < "$BUILD_DIR/symbol-order.txt") symbols next to __set_errno_internal"
+    log "bionic: pinning $_sn symbols next to __set_errno_internal"
   else
     log "bionic: linker will not take --symbol-ordering-file, leaving layout alone"
   fi
