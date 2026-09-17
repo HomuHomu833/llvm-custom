@@ -621,11 +621,15 @@ fi
 # built for the target, which a cross build cannot even run; the NATIVE
 # sub-build supplies the ones it uses.
 #
+# The list covers every tool any of the 34 NDK revisions ships, not just the one
+# being built: the set moves between releases, and clang-scan-deps, llvm-ifs,
+# llvm-ml, llvm-lipo, llvm-dlltool and wasm-ld are each in some and not others.
+#
 # Components are not one per binary. bolt puts all of its tools under a single
 # "bolt", and the install step makes the rest as symlinks: clang++ off clang,
-# ld and ld.lld and ld64.lld and lld-link off lld, ranlib and lib off llvm-ar,
-# readelf off llvm-readobj, strip off llvm-objcopy, addr2line off
-# llvm-symbolizer, windres off llvm-rc.
+# ld and ld.lld and ld64.lld and lld-link and wasm-ld off lld, ranlib and lib
+# and dlltool off llvm-ar, readelf off llvm-readobj, strip off llvm-objcopy,
+# addr2line off llvm-symbolizer, windres off llvm-rc, perf2bolt off llvm-bolt.
 #
 # Each entry is gated on its directory existing, because an unknown component is
 # a configure-time SEND_ERROR and these eight trees span LLVM 14 to 21. Pruning
@@ -636,6 +640,7 @@ _want clang                  clang/tools/driver
 _want clang-resource-headers clang/lib/Headers
 _want clang-check            clang/tools/clang-check
 _want clang-format           clang/tools/clang-format
+_want clang-scan-deps        clang/tools/clang-scan-deps
 _want scan-build             clang/tools/scan-build
 _want scan-view              clang/tools/scan-view
 _want scan-build-py          clang/tools/scan-build-py
