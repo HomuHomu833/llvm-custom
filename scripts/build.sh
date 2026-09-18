@@ -728,6 +728,25 @@ log "Distribution: ${#DIST[@]} components"
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
+
+# Hexagon is the one backend that never implements getFixupKind(StringRef), so
+# every named .reloc that reaches its assembler dies as "unknown relocation
+# name" with no location and no name. Compile one real TU to assembly and say
+# which directive it is, instead of reading that same line twenty times.
+if [ "${TARGET%%-*}" = hexagon ]; then
+  # shellcheck disable=SC2086
+  "$CROSS_CXX" $CROSS_CXXFLAGS -std=c++17 -Os -S -o "$BUILD_DIR/hex-probe.s" \
+    -I"$SRC/llvm/include" -I"$BUILD_DIR/include" \
+    "$SRC/llvm/lib/Support/APFixedPoint.cpp" 2>"$BUILD_DIR/hex-probe.err" || true
+  if [ -s "$BUILD_DIR/hex-probe.s" ]; then
+    log "hexagon: .reloc directives the compiler emitted:"
+    grep -n '\.reloc' "$BUILD_DIR/hex-probe.s" | head -n 10 || log "hexagon: none in the assembly"
+  else
+    log "hexagon: probe produced no assembly:"
+    head -n 10 "$BUILD_DIR/hex-probe.err" >&2 || true
+  fi
+fi
+
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
 
