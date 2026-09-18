@@ -270,23 +270,31 @@ if [ "$PLATFORM" = bionic ]; then
   printf '%s\n' __set_errno_internal > "$BUILD_DIR/symbol-order.txt"
   _libc="$TC/sysroot/usr/lib/$TARGET/libc.a"
   if [ -f "$_libc" ] && [ -x "$TC/bin/llvm-nm" ]; then
-    # --print-file-name prefixes every line with "<archive>:<member>:"; the
-    # bracketed form only shows up under --format=posix, which reorders the
-    # columns as well.
-    "$TC/bin/llvm-nm" --print-file-name "$_libc" 2>/dev/null | awk '
-      { mem = $1; sub(/:$/, "", mem) }
-      / U __set_errno_internal$/ { ref[mem] = 1; next }
-      $3 ~ /^[TtWw]$/ && !(mem in first) { first[mem] = $4 }
+    # llvm-nm names the member either per line, as "<archive>:<member>:", or
+    # once as a "<archive>(<member>):" header, and the columns shift with it.
+    # The name is the last field either way and the type the one before it.
+    "$TC/bin/llvm-nm" --print-file-name "$_libc" 2>/dev/null \
+      > "$BUILD_DIR/libc.nm" || true
+    awk '
+      NF == 1 && /:$/ { mem = $0; next }
+      $1 ~ /:$/ && NF > 2 { mem = $1 }
+      NF >= 2 && $(NF-1) == "U" && $NF == "__set_errno_internal" { ref[mem] = 1; next }
+      NF >= 2 && $(NF-1) ~ /^[TtWw]$/ && !(mem in first) { first[mem] = $NF }
       END { for (m in ref) if (m in first) print first[m] }
-    ' >> "$BUILD_DIR/symbol-order.txt"
+    ' "$BUILD_DIR/libc.nm" >> "$BUILD_DIR/symbol-order.txt"
   fi
-  # A parse that silently yields nothing is what shipped last time. Only
-  # aarch64 has to have the ordering work, so only aarch64 refuses to go on.
+  # A parse that silently yields nothing is what shipped twice. Only aarch64
+  # has to have the ordering work, so only aarch64 refuses to go on, and it
+  # shows what it read so the next attempt is not another guess.
   _sn="$(wc -l < "$BUILD_DIR/symbol-order.txt")"
   if [ "$_sn" -lt 16 ] && [ "${TARGET#aarch64}" != "$TARGET" ]; then
     echo "bionic: only $_sn symbols read out of $_libc, ordering would be a no-op" >&2
+    echo "bionic: first lines of llvm-nm output were:" >&2
+    head -n 12 "$BUILD_DIR/libc.nm" >&2 || true
+    grep -c 'U __set_errno_internal' "$BUILD_DIR/libc.nm" >&2 || true
     exit 1
   fi
+  rm -f "$BUILD_DIR/libc.nm"
   _so="-Wl,--symbol-ordering-file=$BUILD_DIR/symbol-order.txt -Wl,--no-warn-symbol-ordering"
   echo 'int main(void){return 0;}' > "$BUILD_DIR/so-probe.c"
   # shellcheck disable=SC2086
