@@ -789,7 +789,13 @@ if [ -d "$_ndk_bin" ]; then
   _missing=""
   for _f in "$_ndk_bin"/*; do
     _b="$(basename "$_f")"
-    case "$_b" in lldb*|yasm) continue ;; esac
+    case "$_b" in
+      lldb*|yasm) continue ;;
+      # cmake's VERSION property names the versioned driver on unix only, so a
+      # windows build has clang.exe and no clang-<major>.exe. Google's own
+      # windows prebuilt ships the same set, so nothing is missing there.
+      clang-[0-9]*) if [ "$PLATFORM" = windows ]; then continue; fi ;;
+    esac
     file -bL "$_f" 2>/dev/null | grep -q ELF || continue
     [ -e "$OUT/bin/$_b" ] || [ -e "$OUT/bin/$_b.exe" ] || _missing="$_missing $_b"
   done
