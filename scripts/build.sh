@@ -346,16 +346,6 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   fi
   rm -f "$BUILD_DIR/pgo-probe.c" "$BUILD_DIR/pgo-probe.o"
 fi
-# Hexagon gets none either: with a profile its backend emits a relocation MC
-# cannot name, and it dies with the same bare "unknown relocation name" LTO
-# hits. The same TU compiles plain, with -ffunction-sections and with
-# -fno-addrsig; adding the profile is what breaks it. The probe above cannot
-# see that, since reproducing it takes a translation unit the profile covers.
-if [ -n "${LLVM_PROFDATA_FILE:-}" ] &&
-   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -qi '__hexagon__'; then
-  log "PGO: hexagon, profile-use emits relocations MC cannot name, building without"
-  LLVM_PROFDATA_FILE=""
-fi
 
 # --- MLGO -------------------------------------------------------------------
 # Two things decide whether a target can do MLGO: which backends the installed
@@ -516,11 +506,20 @@ fi
 # the string can't claim work a target dropped. clang adds the trailing space,
 # see clang/lib/Basic/CMakeLists.txt.
 _mark() { if [ "$1" = 1 ]; then printf '+%s' "$2"; else printf -- '-%s' "$2"; fi; }
-_on_pgo=0; if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then _on_pgo=1; fi
-_on_lto=0; if [ "$LLVM_LTO" != OFF ]; then _on_lto=1; fi
-_on_mlgo=0; if [ ${#MLGO_ARGS[@]} -gt 0 ]; then _on_mlgo=1; fi
-VENDOR_OPTS="$(_mark "$_on_pgo" pgo), $(_mark 0 bolt), $(_mark "$_on_lto" lto), $(_mark "$_on_mlgo" mlgo)"
-CLANG_VENDOR="${CLANG_VENDOR:-Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }$VENDOR_OPTS, based on ${CLANG_RELEASE:-unknown})}"
+# Composed, not assigned, so a later probe that drops something can rebuild it.
+# An env-supplied CLANG_VENDOR stays whatever the caller said.
+VENDOR_FIXED="${CLANG_VENDOR:-}"
+compose_vendor() {
+  [ -z "$VENDOR_FIXED" ] || { CLANG_VENDOR="$VENDOR_FIXED"; return 0; }
+  local p=0 l=0 m=0
+  [ -n "${LLVM_PROFDATA_FILE:-}" ] && p=1
+  [ "$LLVM_LTO" != OFF ] && l=1
+  [ ${#MLGO_ARGS[@]} -gt 0 ] && m=1
+  VENDOR_OPTS="$(_mark "$p" pgo), $(_mark 0 bolt), $(_mark "$l" lto), $(_mark "$m" mlgo)"
+  CLANG_VENDOR="Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }$VENDOR_OPTS, based on ${CLANG_RELEASE:-unknown})"
+  return 0
+}
+compose_vendor
 log "Vendor: $CLANG_VENDOR"
 
 # --- zlib + zstd (static, bundled) -----------------------------------------
@@ -742,6 +741,36 @@ log "Distribution: ${#DIST[@]} components"
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
+
+# A profile can also break codegen rather than just fail to load, and only a
+# real translation unit the profile covers will show it: the trivial probe
+# earlier compiles to nothing the profile has anything to say about. Those need
+# the headers cmake has just written, which is why this runs here. Compile one
+# both ways, and if the profile is what breaks it, drop it and configure again.
+if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
+  _tu=""
+  for _c in llvm/lib/Support/APFloat.cpp llvm/lib/Support/APInt.cpp; do
+    [ -f "$SRC/$_c" ] && { _tu="$SRC/$_c"; break; }
+  done
+  _pf="-std=c++17 -Os -DNDEBUG -fno-exceptions -fno-rtti -I$SRC/llvm/include -I$BUILD_DIR/include"
+  # shellcheck disable=SC2086
+  if [ -n "$_tu" ] &&
+     "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1 &&
+     ! "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -fprofile-instr-use="$LLVM_PROFDATA_FILE" \
+         -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1; then
+    log "PGO: the profile breaks codegen for $TARGET, reconfiguring without it"
+    LLVM_PROFDATA_FILE=""
+    compose_vendor
+    log "Vendor: $CLANG_VENDOR"
+    _keep=()
+    for _x in "${args[@]}"; do
+      case "$_x" in -DLLVM_PROFDATA_FILE=*|-DCLANG_VENDOR=*) ;; *) _keep+=("$_x") ;; esac
+    done
+    args=("${_keep[@]}" -DCLANG_VENDOR="$CLANG_VENDOR")
+    cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
+  fi
+  rm -f "$BUILD_DIR/pgo-tu.o"
+fi
 
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
