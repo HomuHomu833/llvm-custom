@@ -748,16 +748,18 @@ cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 # the headers cmake has just written, which is why this runs here. Compile one
 # both ways, and if the profile is what breaks it, drop it and configure again.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
-  _tu=""
-  for _c in llvm/lib/Support/APFloat.cpp llvm/lib/Support/APInt.cpp; do
-    [ -f "$SRC/$_c" ] && { _tu="$SRC/$_c"; break; }
-  done
-  _pf="-std=c++17 -Os -DNDEBUG -fno-exceptions -fno-rtti -I$SRC/llvm/include -I$BUILD_DIR/include"
-  # shellcheck disable=SC2086
-  if [ -n "$_tu" ] &&
-     "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1 &&
-     ! "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -fprofile-instr-use="$LLVM_PROFDATA_FILE" \
-         -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1; then
+  # Take the command ninja is going to run rather than compose one: the flags
+  # that matter are the build's, and guessing at them is how you end up testing
+  # something the build never does. Any Support object will do; it carries the
+  # profile already, so dropping that one flag gives the other half.
+  _obj="$(ninja -C "$BUILD_DIR" -t targets all 2>/dev/null |
+          sed -n 's@^\(lib/Support/CMakeFiles/LLVMSupport\.dir/[^:]*\.cpp\.o\):.*@\1@p' | head -n1)"
+  _cmd=""
+  [ -n "$_obj" ] && _cmd="$(ninja -C "$BUILD_DIR" -t commands "$_obj" 2>/dev/null | tail -n1)"
+  _plain="$(printf '%s' "$_cmd" | sed 's@ -fprofile-instr-use=[^ ]*@@g')"
+  if [ -n "$_cmd" ] && [ "$_plain" != "$_cmd" ] &&
+     ( cd "$BUILD_DIR" && eval "$_plain" ) >/dev/null 2>&1 &&
+     ! ( cd "$BUILD_DIR" && eval "$_cmd" ) >/dev/null 2>&1; then
     log "PGO: the profile breaks codegen for $TARGET, reconfiguring without it"
     LLVM_PROFDATA_FILE=""
     compose_vendor
@@ -769,7 +771,9 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
     args=("${_keep[@]}" -DCLANG_VENDOR="$CLANG_VENDOR")
     cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
   fi
-  rm -f "$BUILD_DIR/pgo-tu.o"
+  # Whatever the probe left behind carries the wrong flags for the build that
+  # follows; ninja reruns it either way, since it records the command line.
+  [ -n "$_obj" ] && rm -f "$BUILD_DIR/$_obj"
 fi
 
 log "Building + installing"
