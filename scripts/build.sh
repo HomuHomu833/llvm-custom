@@ -390,6 +390,15 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
       # changing it unconditionally would move every other target's host triple.
       -DLLVM_HOST_TRIPLE="$TRIPLE"
     )
+    # config-ix.cmake derives LLVM_NATIVE_ARCH from that triple against a fixed
+    # table and stops at "Unknown architecture" for anything not in it. thumb
+    # and x86_64h are missing, though both are just their base arch's backend.
+    _na="${TRIPLE%%-*}"
+    case "$_na" in
+      x86_64h) _na=x86_64 ;;
+      thumb*)  _na=arm ;;
+    esac
+    MLGO_ARGS+=(-DLLVM_TARGET_ARCH="$_na")
   fi
   rm -f "$BUILD_DIR/mlgo-probe".* "$BUILD_DIR/mlgo-tu.o"
 fi
@@ -519,6 +528,15 @@ if [ ! -f "$INSTALL_DIR/lib/libz.a" ]; then
       sed -i 's@^/\* get errno and strerror definition \*/@#include <errno.h>\n&@' gzguts.h
       grep -q '^#include <errno.h>' gzguts.h || {
         echo "zlib: could not add the errno.h include to gzguts.h" >&2; exit 1; }
+    fi
+    # The s390x vectorised crc32 reads AT_HWCAP for the vector facility bit, but
+    # only glibc names that bit; musl's sys/auxv.h carries no HWCAP_* at all. It
+    # is kernel ABI, bit 11, the value glibc's bits/hwcap.h also gives it.
+    _vx=contrib/crc32vx/crc32_vx.c
+    if [ -f "$_vx" ] && ! grep -q '#define HWCAP_S390_VX' "$_vx"; then
+      sed -i 's@^#include <sys/auxv.h>@&\n#ifndef HWCAP_S390_VX\n#define HWCAP_S390_VX 2048\n#endif@' "$_vx"
+      grep -q '#define HWCAP_S390_VX' "$_vx" || {
+        echo "zlib: could not add the HWCAP_S390_VX fallback to $_vx" >&2; exit 1; }
     fi
     AR="$CROSS_AR" RANLIB="$CROSS_RANLIB" CC="$CROSS_CC" CFLAGS="$CROSS_CFLAGS" \
       ./configure --prefix="$INSTALL_DIR" --static
