@@ -346,6 +346,16 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   fi
   rm -f "$BUILD_DIR/pgo-probe.c" "$BUILD_DIR/pgo-probe.o"
 fi
+# Hexagon gets none either: with a profile its backend emits a relocation MC
+# cannot name, and it dies with the same bare "unknown relocation name" LTO
+# hits. The same TU compiles plain, with -ffunction-sections and with
+# -fno-addrsig; adding the profile is what breaks it. The probe above cannot
+# see that, since reproducing it takes a translation unit the profile covers.
+if [ -n "${LLVM_PROFDATA_FILE:-}" ] &&
+   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -qi '__hexagon__'; then
+  log "PGO: hexagon, profile-use emits relocations MC cannot name, building without"
+  LLVM_PROFDATA_FILE=""
+fi
 
 # --- MLGO -------------------------------------------------------------------
 # Two things decide whether a target can do MLGO: which backends the installed
@@ -732,47 +742,6 @@ log "Distribution: ${#DIST[@]} components"
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
-
-# Hexagon is the one backend that never implements getFixupKind(StringRef), so
-# every named .reloc that reaches its assembler dies as "unknown relocation
-# name" with no location and no name. Compile one real TU to assembly and say
-# which directive it is, instead of reading that same line twenty times.
-if [ "${TARGET%%-*}" = hexagon ]; then
-  _hf="-std=c++17 -Os -DNDEBUG -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti"
-  [ -n "${LLVM_PROFDATA_FILE:-}" ] && _hf="$_hf -fprofile-instr-use=$LLVM_PROFDATA_FILE"
-  "$CROSS_CXX" --version 2>&1 | head -n 1 >&2 || true
-  # shellcheck disable=SC2086
-  "$CROSS_CXX" $CROSS_CXXFLAGS $_hf -S -o "$BUILD_DIR/hex-probe.s" \
-    -I"$SRC/llvm/include" -I"$BUILD_DIR/include" \
-    "$SRC/llvm/lib/Support/APFixedPoint.cpp" 2>"$BUILD_DIR/hex-probe.err" || true
-  if [ -s "$BUILD_DIR/hex-probe.s" ]; then
-    log "hexagon: .reloc and @ specifiers the compiler emitted:"
-    grep -n '\.reloc\|@GOT\|@PLT\|@GDPLT\|@GPREL\|@DTPREL\|@TPREL\|@IE\|@LD' \
-      "$BUILD_DIR/hex-probe.s" | head -n 10 || log "hexagon: none in the assembly"
-    # The assembly is clean, so the directive comes out of MC on the way to an
-    # object. Bisect the flags that separate this from a plain compile: one TU
-    # each, seconds apiece, and the log names which one carries it.
-    _base="-std=c++17 -Os -DNDEBUG -fno-exceptions -fno-rtti"
-    _pgo=""; [ -n "${LLVM_PROFDATA_FILE:-}" ] && _pgo="-fprofile-instr-use=$LLVM_PROFDATA_FILE"
-    for _try in "plain:" "sections:-ffunction-sections -fdata-sections" \
-                "pgo:$_pgo" "noaddrsig:-fno-addrsig $_pgo" "full:$_hf"; do
-      _lbl="${_try%%:*}"; _add="${_try#*:}"
-      [ "$_lbl" = pgo ] && [ -z "$_pgo" ] && continue
-      # shellcheck disable=SC2086
-      if "$CROSS_CXX" $CROSS_CXXFLAGS $_base $_add -c -o "$BUILD_DIR/hex-$_lbl.o" \
-           -I"$SRC/llvm/include" -I"$BUILD_DIR/include" \
-           "$SRC/llvm/lib/Support/APFixedPoint.cpp" 2>"$BUILD_DIR/hex-$_lbl.err"; then
-        log "hexagon: $_lbl ok"
-      else
-        log "hexagon: $_lbl FAILS -> $(head -n 1 "$BUILD_DIR/hex-$_lbl.err")"
-      fi
-      rm -f "$BUILD_DIR/hex-$_lbl.o"
-    done
-  else
-    log "hexagon: probe produced no assembly:"
-    head -n 10 "$BUILD_DIR/hex-probe.err" >&2 || true
-  fi
-fi
 
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
