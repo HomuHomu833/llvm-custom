@@ -752,10 +752,14 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   # that matter are the build's, and guessing at them is how you end up testing
   # something the build never does. Any Support object will do; it carries the
   # profile already, so dropping that one flag gives the other half.
-  _obj="$(ninja -C "$BUILD_DIR" -t targets all 2>/dev/null |
-          sed -n 's@^\(lib/Support/CMakeFiles/LLVMSupport\.dir/[^:]*\.cpp\.o\):.*@\1@p' | head -n1)"
+  # pipefail with head on a target list this long is a SIGPIPE and a dead
+  # build, so the early exit stays inside the subshell that allows it.
+  _obj="$(set +o pipefail
+          ninja -C "$BUILD_DIR" -t targets all 2>/dev/null |
+          sed -n 's@^\(lib/Support/CMakeFiles/LLVMSupport\.dir/[^:]*\.cpp\.o\):.*@\1@p' |
+          head -n1 || true)"
   _cmd=""
-  [ -n "$_obj" ] && _cmd="$(ninja -C "$BUILD_DIR" -t commands "$_obj" 2>/dev/null | tail -n1)"
+  [ -n "$_obj" ] && _cmd="$(ninja -C "$BUILD_DIR" -t commands "$_obj" 2>/dev/null | tail -n1 || true)"
   _plain="$(printf '%s' "$_cmd" | sed 's@ -fprofile-instr-use=[^ ]*@@g')"
   if [ -n "$_cmd" ] && [ "$_plain" != "$_cmd" ] &&
      ( cd "$BUILD_DIR" && eval "$_plain" ) >/dev/null 2>&1 &&
