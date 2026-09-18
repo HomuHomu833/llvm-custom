@@ -716,6 +716,8 @@ cmake --build "$BUILD_DIR" --target install-distribution
 # Every ELF tool the NDK ships has to come back out, or assemble_ndk silently
 # keeps Google's copy: it only replaces a file when one of the same name exists
 # in ours. lldb went with the debuggers and yasm comes from android-ndk-custom.
+# The NDK we read is always the linux-x86_64 one, so the names carry no suffix
+# even when what we just built is a windows toolchain of clang.exe and lld.exe.
 _ndk_bin="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
 if [ -d "$_ndk_bin" ]; then
   _missing=""
@@ -723,7 +725,7 @@ if [ -d "$_ndk_bin" ]; then
     _b="$(basename "$_f")"
     case "$_b" in lldb*|yasm) continue ;; esac
     file -bL "$_f" 2>/dev/null | grep -q ELF || continue
-    [ -e "$OUT/bin/$_b" ] || _missing="$_missing $_b"
+    [ -e "$OUT/bin/$_b" ] || [ -e "$OUT/bin/$_b.exe" ] || _missing="$_missing $_b"
   done
   [ -z "$_missing" ] || {
     echo "install-distribution did not produce:$_missing" >&2; exit 1; }
