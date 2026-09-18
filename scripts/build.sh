@@ -738,13 +738,24 @@ cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 # name" with no location and no name. Compile one real TU to assembly and say
 # which directive it is, instead of reading that same line twenty times.
 if [ "${TARGET%%-*}" = hexagon ]; then
+  _hf="-std=c++17 -Os -DNDEBUG -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti"
+  [ -n "${LLVM_PROFDATA_FILE:-}" ] && _hf="$_hf -fprofile-instr-use=$LLVM_PROFDATA_FILE"
+  "$CROSS_CXX" --version 2>&1 | head -n 1 >&2 || true
   # shellcheck disable=SC2086
-  "$CROSS_CXX" $CROSS_CXXFLAGS -std=c++17 -Os -S -o "$BUILD_DIR/hex-probe.s" \
+  "$CROSS_CXX" $CROSS_CXXFLAGS $_hf -S -o "$BUILD_DIR/hex-probe.s" \
     -I"$SRC/llvm/include" -I"$BUILD_DIR/include" \
     "$SRC/llvm/lib/Support/APFixedPoint.cpp" 2>"$BUILD_DIR/hex-probe.err" || true
   if [ -s "$BUILD_DIR/hex-probe.s" ]; then
-    log "hexagon: .reloc directives the compiler emitted:"
-    grep -n '\.reloc' "$BUILD_DIR/hex-probe.s" | head -n 10 || log "hexagon: none in the assembly"
+    log "hexagon: .reloc and @ specifiers the compiler emitted:"
+    grep -n '\.reloc\|@GOT\|@PLT\|@GDPLT\|@GPREL\|@DTPREL\|@TPREL\|@IE\|@LD' \
+      "$BUILD_DIR/hex-probe.s" | head -n 10 || log "hexagon: none in the assembly"
+    # Same flags again but straight to an object, which is the step that fails.
+    # shellcheck disable=SC2086
+    "$CROSS_CXX" $CROSS_CXXFLAGS $_hf -c -o "$BUILD_DIR/hex-probe.o" \
+      -I"$SRC/llvm/include" -I"$BUILD_DIR/include" \
+      "$SRC/llvm/lib/Support/APFixedPoint.cpp" 2>"$BUILD_DIR/hex-obj.err" \
+      && log "hexagon: the same flags assemble fine, so the build flags differ" \
+      || { log "hexagon: reproduced, assembling that TU says:"; head -n 4 "$BUILD_DIR/hex-obj.err" >&2; }
   else
     log "hexagon: probe produced no assembly:"
     head -n 10 "$BUILD_DIR/hex-probe.err" >&2 || true
