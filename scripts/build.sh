@@ -283,15 +283,19 @@ if [ "$PLATFORM" = bionic ]; then
       END { for (m in ref) if (m in first) print first[m] }
     ' "$BUILD_DIR/libc.nm" >> "$BUILD_DIR/symbol-order.txt"
   fi
-  # A parse that silently yields nothing is what shipped twice. Only aarch64
-  # has to have the ordering work, so only aarch64 refuses to go on, and it
-  # shows what it read so the next attempt is not another guess.
+  # A parse that silently yields nothing is what shipped twice, so check the
+  # result against the archive rather than against a number picked by hand:
+  # one symbol per referencing member, plus the target itself. Far fewer
+  # members reference it than there are syscalls, because the stubs are not one
+  # object each. Only aarch64 has to have the ordering work, so only aarch64
+  # refuses to go on, and it shows what it read rather than guess again.
+  _refs="$(grep -c 'U __set_errno_internal' "$BUILD_DIR/libc.nm" 2>/dev/null || true)"
   _sn="$(wc -l < "$BUILD_DIR/symbol-order.txt")"
-  if [ "$_sn" -lt 16 ] && [ "${TARGET#aarch64}" != "$TARGET" ]; then
-    echo "bionic: only $_sn symbols read out of $_libc, ordering would be a no-op" >&2
+  log "bionic: $_refs members branch to __set_errno_internal, ordering $_sn symbols"
+  if [ "${_refs:-0}" -gt 0 ] && [ "$_sn" -le 1 ] && [ "${TARGET#aarch64}" != "$TARGET" ]; then
+    echo "bionic: read nothing out of $_libc, ordering would be a no-op" >&2
     echo "bionic: first lines of llvm-nm output were:" >&2
     head -n 12 "$BUILD_DIR/libc.nm" >&2 || true
-    grep -c 'U __set_errno_internal' "$BUILD_DIR/libc.nm" >&2 || true
     exit 1
   fi
   rm -f "$BUILD_DIR/libc.nm"
