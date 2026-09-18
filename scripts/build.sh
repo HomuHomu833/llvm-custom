@@ -749,17 +749,18 @@ cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
 # both ways, and if the profile is what breaks it, drop it and configure again.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   # Take the command ninja is going to run rather than compose one: the flags
-  # that matter are the build's, and guessing at them is how you end up testing
-  # something the build never does. Any Support object will do; it carries the
-  # profile already, so dropping that one flag gives the other half.
-  # pipefail with head on a target list this long is a SIGPIPE and a dead
-  # build, so the early exit stays inside the subshell that allows it.
-  _obj="$(set +o pipefail
-          ninja -C "$BUILD_DIR" -t targets all 2>/dev/null |
-          sed -n 's@^\(lib/Support/CMakeFiles/LLVMSupport\.dir/[^:]*\.cpp\.o\):.*@\1@p' |
-          head -n1 || true)"
-  _cmd=""
-  [ -n "$_obj" ] && _cmd="$(ninja -C "$BUILD_DIR" -t commands "$_obj" 2>/dev/null | tail -n1 || true)"
+  # that matter are the build's own, and guessing at them tests something the
+  # build never does. Any Support object will do, and it carries the profile
+  # already, so dropping that one flag gives the other half.
+  #
+  # Written to a file, not piped: ninja lists every command in the build, and
+  # under pipefail a reader that stops early turns the writer's SIGPIPE into a
+  # failed pipeline and errexit ends the build.
+  ninja -C "$BUILD_DIR" -t commands > "$BUILD_DIR/pgo-cmds.txt" 2>/dev/null || true
+  _cmd="$(grep -m1 -E -- '-o lib/Support/CMakeFiles/LLVMSupport\.dir/[^ ]+\.cpp\.o -c ' \
+          "$BUILD_DIR/pgo-cmds.txt" || true)"
+  _obj="$(printf '%s' "$_cmd" | sed -n 's@.* -o \(lib/Support/[^ ]*\.cpp\.o\) -c .*@\1@p')"
+  rm -f "$BUILD_DIR/pgo-cmds.txt"
   _plain="$(printf '%s' "$_cmd" | sed 's@ -fprofile-instr-use=[^ ]*@@g')"
   if [ -n "$_cmd" ] && [ "$_plain" != "$_cmd" ] &&
      ( cd "$BUILD_DIR" && eval "$_plain" ) >/dev/null 2>&1 &&
