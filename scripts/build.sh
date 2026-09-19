@@ -346,6 +346,62 @@ if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
   fi
   rm -f "$BUILD_DIR/pgo-probe.c" "$BUILD_DIR/pgo-probe.o"
 fi
+# A profile can also break codegen rather than just fail to load, and only a
+# real translation unit the profile covers will show it: the probe above
+# compiles to nothing the profile has anything to say about, and neither does
+# anything in lib/Demangle, which builds clean on a target lib/Support then
+# dies on. APFloat and APInt are the smallest units that do.
+#
+# They include llvm/Config, which the LLVM configure writes, so stub the two
+# headers they reach rather than wait for it. The decision has to land before
+# that configure: cmake caches every -D it is handed, so a profile passed now
+# and dropped from a later configure stays in CMakeCache.txt and the build
+# compiles -fprofile-instr-use regardless. Nothing in those headers decides
+# whether the target's assembler can name what profiled inlining emits, so
+# stubs answer the question the real ones would.
+#
+# A profile from one tree still misses functions that differ per target, like
+# #ifdef'd code and target-specific TableGen output. Quiet the two warnings that
+# reports, the pair llvm_android suppresses, so the probe fails on what the
+# build would fail on, and hand the build the same flags further down.
+PGO_WFLAGS="-Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
+if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
+  _tu=""
+  for _c in llvm/lib/Support/APFloat.cpp llvm/lib/Support/APInt.cpp; do
+    [ -f "$SRC/$_c" ] && { _tu="$SRC/$_c"; break; }
+  done
+  _inc="$BUILD_DIR/pgo-config"
+  mkdir -p "$_inc/llvm/Config"
+  printf '%s\n' '#pragma once' \
+                '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' \
+                '#define LLVM_ENABLE_REVERSE_ITERATION 0' \
+                > "$_inc/llvm/Config/abi-breaking.h"
+  { printf '%s\n' '#pragma once' \
+                  '#define LLVM_ENABLE_THREADS 1' \
+                  '#define LLVM_HAS_ATOMICS 1' \
+                  '#define LLVM_VERSION_MINOR 0' \
+                  '#define LLVM_VERSION_PATCH 0'
+    printf '#define LLVM_VERSION_MAJOR %s\n' "${LLVM_VERSION%%.*}"
+    printf '#define LLVM_VERSION_STRING "%s"\n' "$LLVM_VERSION"
+    printf '#define LLVM_DEFAULT_TARGET_TRIPLE "%s"\n' "$TRIPLE"
+    [ "$PLATFORM" = windows ] || printf '%s\n' '#define LLVM_ON_UNIX 1'
+  } > "$_inc/llvm/Config/llvm-config.h"
+  _pf="-std=c++17 -Os -DNDEBUG -fno-exceptions -fno-rtti -I$_inc -I$SRC/llvm/include"
+  # An inconclusive probe keeps the profile: only a plain compile that works and
+  # a profiled one that doesn't says anything about the profile. Both say so out
+  # loud, because either one means the profile went in unverified.
+  # shellcheck disable=SC2086
+  if [ -z "$_tu" ]; then
+    log "PGO: no codegen probe unit in this tree, taking the profile on trust"
+  elif ! "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1; then
+    log "PGO: $(basename "$_tu") will not compile for $TARGET, taking the profile on trust"
+  elif ! "$CROSS_CXX" $CROSS_CXXFLAGS $_pf $PGO_WFLAGS -fprofile-instr-use="$LLVM_PROFDATA_FILE" \
+           -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1; then
+    log "PGO: the profile breaks codegen for $TARGET, building without"
+    LLVM_PROFDATA_FILE=""
+  fi
+  rm -rf "$BUILD_DIR/pgo-tu.o" "$_inc"
+fi
 
 # --- MLGO -------------------------------------------------------------------
 # Two things decide whether a target can do MLGO: which backends the installed
@@ -599,6 +655,8 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
 fi
 
 # --- LLVM -------------------------------------------------------------------
+# Every probe has run by now, so this configure is the only one: what it is
+# handed is what gets built.
 args=(
   -DCMAKE_INSTALL_PREFIX="$OUT"
   -DCMAKE_PREFIX_PATH="$INSTALL_DIR"
@@ -644,13 +702,10 @@ args+=(
   -DZLIB_LIBRARY="$INSTALL_DIR/lib/libz.a" -DZLIB_INCLUDE_DIR="$INSTALL_DIR/include"
   -Dzstd_LIBRARY="$INSTALL_DIR/lib/libzstd.a" -Dzstd_INCLUDE_DIR="$INSTALL_DIR/include"
 )
-# A profile from one tree still misses functions that differ per target, like
-# #ifdef'd code and target-specific TableGen output, so quiet the two warnings
-# that reports. Added after zlib/zstd are built, so only the LLVM configure sees
-# them. llvm_android suppresses exactly this pair.
+# The suppressions the codegen probe already used, added here so only the LLVM
+# configure sees them and the zlib/zstd builds above don't.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
-  _pgo_w=" -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
-  CROSS_CFLAGS="$CROSS_CFLAGS$_pgo_w"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS$_pgo_w"
+  CROSS_CFLAGS="$CROSS_CFLAGS $PGO_WFLAGS"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS $PGO_WFLAGS"
 fi
 [ -n "$CROSS_CFLAGS" ] && args+=(-DCMAKE_C_FLAGS="$CROSS_CFLAGS" -DCMAKE_CXX_FLAGS="$CROSS_CXXFLAGS")
 # pass CMAKE_OBJCOPY only when the toolchain has one (empty on macos).
@@ -741,36 +796,6 @@ log "Distribution: ${#DIST[@]} components"
 
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
-
-# A profile can also break codegen rather than just fail to load, and only a
-# real translation unit the profile covers will show it: the trivial probe
-# earlier compiles to nothing the profile has anything to say about. Those need
-# the headers cmake has just written, which is why this runs here. Compile one
-# both ways, and if the profile is what breaks it, drop it and configure again.
-if [ -n "${LLVM_PROFDATA_FILE:-}" ]; then
-  _tu=""
-  for _c in llvm/lib/Support/APFloat.cpp llvm/lib/Support/APInt.cpp; do
-    [ -f "$SRC/$_c" ] && { _tu="$SRC/$_c"; break; }
-  done
-  _pf="-std=c++17 -Os -DNDEBUG -fno-exceptions -fno-rtti -I$SRC/llvm/include -I$BUILD_DIR/include"
-  # shellcheck disable=SC2086
-  if [ -n "$_tu" ] &&
-     "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1 &&
-     ! "$CROSS_CXX" $CROSS_CXXFLAGS $_pf -fprofile-instr-use="$LLVM_PROFDATA_FILE" \
-         -c "$_tu" -o "$BUILD_DIR/pgo-tu.o" >/dev/null 2>&1; then
-    log "PGO: the profile breaks codegen for $TARGET, reconfiguring without it"
-    LLVM_PROFDATA_FILE=""
-    compose_vendor
-    log "Vendor: $CLANG_VENDOR"
-    _keep=()
-    for _x in "${args[@]}"; do
-      case "$_x" in -DLLVM_PROFDATA_FILE=*|-DCLANG_VENDOR=*) ;; *) _keep+=("$_x") ;; esac
-    done
-    args=("${_keep[@]}" -DCLANG_VENDOR="$CLANG_VENDOR")
-    cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
-  fi
-  rm -f "$BUILD_DIR/pgo-tu.o"
-fi
 
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
