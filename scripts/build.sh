@@ -431,15 +431,23 @@ if [ -n "${MLGO_DIR:-}" ] && [ -d "${TENSORFLOW_AOT_PATH:-/nonexistent}/xla_aot_
   [ -n "$_tu" ] || _tu="$(_find_tu '*conv*.cc')"
   [ -n "$_tu" ] || _tu="$(_find_tu 'eigen_contraction_kernel.cc')"
   [ -n "$_tu" ] || _tu="$(_find_tu '*.cc')"
+  # That runtime compiles as part of LLVM, so probe it at LLVM's own standard.
+  # A hardcoded c++17 passed on releases that build at 14 (r25 ships LLVM 14),
+  # and the real compile then failed on headers wanting the C++17 type traits.
+  # 14 and earlier spell it CMAKE_CXX_STANDARD, 16 and later
+  # LLVM_REQUIRED_CXX_STANDARD.
+  _cxxstd="$(sed -n 's/^set(\(LLVM_REQUIRED_CXX_STANDARD\|CMAKE_CXX_STANDARD\) \([0-9]\{1,\}\).*/\2/p' \
+      "$SRC/llvm/CMakeLists.txt" 2>/dev/null | head -n1)"
+  [ -n "$_cxxstd" ] || _cxxstd=17
   if ! { [ -x "$_sm" ] && "$_sm" aot_compile_cpu --multithreading false \
        --dir "$MLGO_DIR/inlining-Oz-chromium" --tag_set serve \
        --signature_def_key action --output_prefix "$BUILD_DIR/mlgo-probe" \
        --cpp_class ProbeModel --target_triple "$TRIPLE" >/dev/null 2>&1; }; then
     log "MLGO: $TRIPLE not supported by the AOT compiler, building without"
-  elif [ -n "$_tu" ] && ! "$CROSS_CXX" $CROSS_CXXFLAGS -std=c++17 -w \
+  elif [ -n "$_tu" ] && ! "$CROSS_CXX" $CROSS_CXXFLAGS "-std=c++$_cxxstd" -w \
        -I"$TENSORFLOW_AOT_PATH/include" -c "$_tu" \
        -o "$BUILD_DIR/mlgo-tu.o" >/dev/null 2>&1; then
-    log "MLGO: $TRIPLE cannot build the XLA runtime, building without"
+    log "MLGO: $TRIPLE cannot build the XLA runtime at c++$_cxxstd, building without"
   else
     log "MLGO: $TRIPLE accepted by the AOT compiler"
     MLGO_ARGS=(
