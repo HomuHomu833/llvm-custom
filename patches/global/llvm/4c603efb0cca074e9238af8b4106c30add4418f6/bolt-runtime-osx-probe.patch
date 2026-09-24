@@ -1,0 +1,20 @@
+diff --git a/bolt/runtime/CMakeLists.txt b/bolt/runtime/CMakeLists.txt
+index dec85d0..eb4e843 100644
+--- a/bolt/runtime/CMakeLists.txt
++++ b/bolt/runtime/CMakeLists.txt
+@@ -30,7 +30,14 @@ target_include_directories(bolt_rt_hugify PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+ install(TARGETS bolt_rt_instr DESTINATION lib)
+ install(TARGETS bolt_rt_hugify DESTINATION lib)
+ 
+-if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang.*")
++include(CheckCXXSourceCompiles)
++set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
++set(CMAKE_REQUIRED_FLAGS "-target x86_64-apple-darwin19.6.0 -ffreestanding")
++check_cxx_source_compiles("int bolt_rt_osx_probe() { return 0; }" BOLT_RT_CAN_TARGET_OSX)
++unset(CMAKE_REQUIRED_FLAGS)
++unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
++
++if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang.*" AND BOLT_RT_CAN_TARGET_OSX)
+   add_library(bolt_rt_instr_osx STATIC
+     instr.cpp
+     ${CMAKE_CURRENT_BINARY_DIR}/config.h
