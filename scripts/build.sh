@@ -783,6 +783,9 @@ _want clang-tidy             clang-tools-extra/clang-tidy
 _want clangd                 clang-tools-extra/clangd
 _want lld                    lld
 _want bolt                   bolt
+if grep -qs 'add_llvm_tool(merge-fdata' "$SRC/bolt/tools/merge-fdata/CMakeLists.txt"; then
+  DIST+=(merge-fdata)
+fi
 _want llvm-ar         llvm/tools/llvm-ar         llvm-ranlib llvm-lib llvm-dlltool
 _want llvm-objcopy    llvm/tools/llvm-objcopy    llvm-strip
 _want llvm-rc         llvm/tools/llvm-rc         llvm-windres
