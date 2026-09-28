@@ -92,6 +92,12 @@ jobs:
 
       - name: Build LLVM
         run: |
+          PUB_REPO='${{ vars.PUBLISHER_REPO }}'
+          PUB_OWNER='${{ vars.PUBLISHER_OWNER }}'
+          PUB_OWNER="${PUB_OWNER:-${PUB_REPO%/*}}"
+          PUB_REPO="${PUB_REPO:-${PUB_OWNER:+$PUB_OWNER/llvm-custom}}"
+          PUB_REPO="${PUB_REPO:-${{ github.repository }}}"
+          PUB_OWNER="${PUB_OWNER:-${{ github.repository_owner }}}"
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/llvm-builder:latest"
           docker run --rm \
             -v "/mnt/build:/work" -w /work --user "$(id -u):$(id -g)" \
@@ -108,8 +114,8 @@ jobs:
             -e ENABLE_MLGO='${{ inputs.mlgo && 1 || 0 }}' \
             -e LLVM_LTO='${{ inputs.lto && 'Thin' || 'OFF' }}' \
             -e PGO_URL_BASE='https://github.com/${{ github.repository }}/releases/download/profdata' \
-            -e CLANG_REPOSITORY_STRING='https://github.com/${{ github.repository }} ${{ github.sha }}' \
-            -e PACKAGE_BUGREPORT='https://github.com/${{ github.repository_owner }}/android-ndk-custom/issues/' \
+            -e CLANG_REPOSITORY_STRING="https://github.com/$PUB_REPO ${{ github.sha }}" \
+            -e PACKAGE_BUGREPORT="https://github.com/$PUB_OWNER/android-ndk-custom/issues/" \
             "$IMAGE" \
             bash -c 'scripts/fetch-source.sh && scripts/build.sh'
 
