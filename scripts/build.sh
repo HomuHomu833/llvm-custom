@@ -528,19 +528,15 @@ if [ "$LLVM_LTO" != OFF ]; then
       break
     fi
   done
-  # lto-c pulls libdl like DynamicLibrary.cpp: r28-beta1/2 ship it as bitcode
-  # built with a split LTO unit, which ours must match or ThinLTO import fails.
-  printf '%s\n' '#include <dlfcn.h>' \
-                'int main(){ return dlopen("x", RTLD_NOW) != 0; }' > "$BUILD_DIR/lto-c.cc"
-  if [ "$LLVM_LTO" != OFF ] && _probe lto-c.cc && ! _probe lto-c.cc -flto=thin; then
-    if _probe lto-c.cc -flto=thin -fsplit-lto-unit; then
-      log "LTO: libdl is split-unit bitcode, adding -fsplit-lto-unit"
-      CROSS_CFLAGS="$CROSS_CFLAGS -fsplit-lto-unit"
-      CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fsplit-lto-unit"
-    else
-      log "LTO: $(basename "$CROSS_CXX") cannot link libdl with -flto=thin, building without"
-      LLVM_LTO=OFF
-    fi
+  # r28-beta1/2 ship libdl.a as bitcode built with a split LTO unit, which ours
+  # must match or ThinLTO import fails. A toy link imports nothing from it, so
+  # look at the archive instead of probing.
+  _libdl=$("$CROSS_CXX" $CROSS_CXXFLAGS -print-file-name=libdl.a 2>/dev/null)
+  if [ "$LLVM_LTO" != OFF ] && [ -f "$_libdl" ] &&
+     [ "$("$CROSS_AR" p "$_libdl" 2>/dev/null | head -c4 | od -An -tx1 | tr -d ' \n')" = 4243c0de ]; then
+    log "LTO: libdl is bitcode, adding -fsplit-lto-unit"
+    CROSS_CFLAGS="$CROSS_CFLAGS -fsplit-lto-unit"
+    CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fsplit-lto-unit"
   fi
   if [ "$LLVM_LTO" != OFF ] && [ ${#MLGO_ARGS[@]} -gt 0 ]; then
     # The advisor only reaches the register allocator through the linker, and zig
@@ -563,7 +559,7 @@ if [ "$LLVM_LTO" != OFF ]; then
       log "LTO: linker will not take --lto-O0, leaving codegen at default"
     fi
   fi
-  rm -f "$BUILD_DIR/lto-a.cc" "$BUILD_DIR/lto-b.cc" "$BUILD_DIR/lto-c.cc" "$BUILD_DIR/lto-probe"
+  rm -f "$BUILD_DIR/lto-a.cc" "$BUILD_DIR/lto-b.cc" "$BUILD_DIR/lto-probe"
 fi
 if [ "$LLVM_LTO" != OFF ]; then
   # They widen this to min(ncpu/2, 16), sized for their build machines. On a
