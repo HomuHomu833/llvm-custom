@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
-      GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+      GH_TOKEN: ${{ secrets.TOKEN }}
       SRC: ${{ github.repository }}
       DST: ${{ inputs.destination }}
       TAG: ${{ inputs.tag }}
