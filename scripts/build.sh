@@ -504,10 +504,9 @@ if [ "$LLVM_LTO" != OFF ] &&
   LLVM_LTO=OFF
 fi
 # From r29, LTO codegen of llvm-bolt in Thumb mode dies on "Constant Island
-# pass failed to converge". Thumb is the default ISA on these targets, so ask
-# the compiler rather than match triples.
+# pass failed to converge".
 if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
-   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -q '__thumb__'; then
+   case "$TARGET" in thumb*|armv7a-linux-android*) true ;; *) false ;; esac; then
   log "LTO: Thumb, the constant island pass does not converge under LTO, building without"
   LLVM_LTO=OFF
 fi

@@ -31,6 +31,10 @@ on:
         default: true
         required: false
         type: boolean
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -48,6 +52,7 @@ jobs:
       pgo: ${{ inputs.pgo }}
       mlgo: ${{ inputs.mlgo }}
       lto: ${{ inputs.lto }}
+      only: ${{ inputs.only }}
       targets: >-
         ["aarch64-w64-mingw32", "i686-w64-mingw32", "x86_64-w64-mingw32",
          "armv7-w64-mingw32", "arm64ec-w64-mingw32"]

@@ -31,6 +31,10 @@ on:
         default: true
         required: false
         type: boolean
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -48,6 +52,7 @@ jobs:
       pgo: ${{ inputs.pgo }}
       mlgo: ${{ inputs.mlgo }}
       lto: ${{ inputs.lto }}
+      only: ${{ inputs.only }}
       targets: >-
         ["arm64-apple-darwin", "arm64e-apple-darwin",
          "x86_64-apple-darwin", "x86_64h-apple-darwin"]
