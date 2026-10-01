@@ -267,7 +267,8 @@ export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_
 # turns out not to take it.
 if [ "$PLATFORM" = bionic ]; then
   mkdir -p "$BUILD_DIR"
-  printf '%s\n' __set_errno_internal > "$BUILD_DIR/symbol-order.txt"
+  printf '%s\n' __set_errno_internal __bionic_setjmp_checksum_mismatch \
+    > "$BUILD_DIR/symbol-order.txt"
   _libc="$TC/sysroot/usr/lib/$TARGET/libc.a"
   if [ -f "$_libc" ] && [ -x "$TC/bin/llvm-nm" ]; then
     # llvm-nm names the member either per line, as "<archive>:<member>:", or
@@ -278,7 +279,7 @@ if [ "$PLATFORM" = bionic ]; then
     awk '
       NF == 1 && /:$/ { mem = $0; next }
       $1 ~ /:$/ && NF > 2 { mem = $1 }
-      NF >= 2 && $(NF-1) == "U" && $NF == "__set_errno_internal" { ref[mem] = 1; next }
+      NF >= 2 && $(NF-1) == "U" && $NF ~ /^(__set_errno_internal|__bionic_setjmp_checksum_mismatch)$/ { ref[mem] = 1; next }
       NF >= 2 && $(NF-1) ~ /^[TtWw]$/ && !(mem in first) { first[mem] = $NF }
       END { for (m in ref) if (m in first) print first[m] }
     ' "$BUILD_DIR/libc.nm" >> "$BUILD_DIR/symbol-order.txt"
@@ -292,7 +293,7 @@ if [ "$PLATFORM" = bionic ]; then
   _refs="$(grep -c 'U __set_errno_internal' "$BUILD_DIR/libc.nm" 2>/dev/null || true)"
   _sn="$(wc -l < "$BUILD_DIR/symbol-order.txt")"
   log "bionic: $_refs members branch to __set_errno_internal, ordering $_sn symbols"
-  if [ "${_refs:-0}" -gt 0 ] && [ "$_sn" -le 1 ] && [ "${TARGET#aarch64}" != "$TARGET" ]; then
+  if [ "${_refs:-0}" -gt 0 ] && [ "$_sn" -le 2 ] && ["${TARGET#aarch64}" != "$TARGET" ]; then
     echo "bionic: read nothing out of $_libc, ordering would be a no-op" >&2
     echo "bionic: first lines of llvm-nm output were:" >&2
     head -n 12 "$BUILD_DIR/libc.nm" >&2 || true
@@ -502,6 +503,14 @@ if [ "$LLVM_LTO" != OFF ] &&
   log "LTO: hexagon, lld cannot name the relocations LTO codegen emits, building without"
   LLVM_LTO=OFF
 fi
+# From r29, LTO codegen of llvm-bolt in Thumb mode dies on "Constant Island
+# pass failed to converge". Thumb is the default ISA on these targets, so ask
+# the compiler rather than match triples.
+if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
+   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -q '__thumb__'; then
+  log "LTO: Thumb, the constant island pass does not converge under LTO, building without"
+  LLVM_LTO=OFF
+fi
 if [ "$LLVM_LTO" != OFF ]; then
   # Probe by linking, not compiling: LTO is a link-time property. Two programs:
   # lto-a is the least that exercises LTO, with a double so the bitcode carries
@@ -531,12 +540,25 @@ if [ "$LLVM_LTO" != OFF ]; then
   # r28-beta1/2 ship libdl.a as bitcode built with a split LTO unit, which ours
   # must match or ThinLTO import fails. A toy link imports nothing from it, so
   # look at the archive instead of probing.
-  _libdl=$("$CROSS_CXX" $CROSS_CXXFLAGS -print-file-name=libdl.a 2>/dev/null)
+  _libdl=$("$CROSS_CXX" $CROSS_CXXFLAGS -print-file-name=libdl.a 2>/dev/null) || _libdl=
   if [ "$LLVM_LTO" != OFF ] && [ -f "$_libdl" ] &&
      [ "$("$CROSS_AR" p "$_libdl" 2>/dev/null | head -c4 | od -An -tx1 | tr -d ' \n')" = 4243c0de ]; then
     log "LTO: libdl is bitcode, adding -fsplit-lto-unit"
     CROSS_CFLAGS="$CROSS_CFLAGS -fsplit-lto-unit"
     CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fsplit-lto-unit"
+  fi
+  # Non-PIC mips jump tables address through __gnu_local_gp, which lld only
+  # defines when something references it before LTO. From r29 the first
+  # reference only appears in LTO codegen (lld's own InputFiles.cpp), so ask
+  # for it up front.
+  if [ "$LLVM_LTO" != OFF ] &&
+     "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -q '__mips__'; then
+    if _probe lto-a.cc -flto=thin -Wl,-u,__gnu_local_gp; then
+      CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-u,__gnu_local_gp"
+    else
+      log "LTO: linker will not define __gnu_local_gp up front, building without"
+      LLVM_LTO=OFF
+    fi
   fi
   if [ "$LLVM_LTO" != OFF ] && [ ${#MLGO_ARGS[@]} -gt 0 ]; then
     # The advisor only reaches the register allocator through the linker, and zig
