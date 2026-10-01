@@ -503,12 +503,12 @@ if [ "$LLVM_LTO" != OFF ] &&
   log "LTO: hexagon, lld cannot name the relocations LTO codegen emits, building without"
   LLVM_LTO=OFF
 fi
-# From r29, LTO codegen of llvm-bolt on these ARM32 targets dies on "Constant
-# Island pass failed to converge".
-if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
+# From r29, these ARM32 targets die on "Constant Island pass failed to
+# converge" compiling X86Disassembler.cpp, with or without LTO.
+if [ -n "${LLVM_PROFDATA_FILE:-}" ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
    case "$TARGET" in thumb*|armv7a-linux-android*) true ;; *) false ;; esac; then
-  log "LTO: ARM32, the constant island pass does not converge under LTO, building without"
-  LLVM_LTO=OFF
+  log "PGO: ARM32, the constant island pass does not converge with the profile, building without"
+  LLVM_PROFDATA_FILE=""
 fi
 if [ "$LLVM_LTO" != OFF ]; then
   # Probe by linking, not compiling: LTO is a link-time property. Two programs:
