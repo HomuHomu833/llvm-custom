@@ -23,8 +23,9 @@
 #   LLVM_SHARED        1 = link the tools against libLLVM / libclang-cpp shared
 #                      libraries (installed under lib/) with an $ORIGIN-relative
 #                      rpath, so the tools find them wherever the tree is
-#                      unpacked. Ignored, with a warning, on musl (always
-#                      static) and Windows; bionic links dynamically.
+#                      unpacked. Windows has no rpath: the DLLs install
+#                      into bin/ beside the exes. Ignored, with a warning,
+#                      on musl, which is always static.
 #   BUILD_PROFDATA     1 = generate the PGO profile for this llvm revision and
 #                      exit, instead of cross building. Needs only NDK_VERSION
 #                      (via fetch-source.sh); PLATFORM/TARGET are unused.
@@ -257,11 +258,11 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# Shared libLLVM/libclang-cpp. musl is always static and the dylib build is not
-# supported for Windows, so those keep the static layout (bionic goes dynamic).
+# Shared libLLVM/libclang-cpp. musl is always static and keeps that layout;
+# bionic and mingw go dynamic (only libstdc++/libgcc/winpthread stay static).
 LLVM_SHARED="${LLVM_SHARED:-0}"
 if [ "$LLVM_SHARED" = 1 ]; then
-  if [ "$LLVM_STATIC" = ON ] || [ "$PLATFORM" = windows ]; then
+  if [ "$LLVM_STATIC" = ON ]; then
     log "LLVM_SHARED ignored: $TARGET ($PLATFORM) is built static"
     LLVM_SHARED=0
   fi
@@ -761,12 +762,15 @@ if [ "$LLVM_SHARED" = 1 ]; then
   # the binary so the tree can be moved. Later -D wins over the static ones above.
   case "$PLATFORM" in
     macos) _rpath='@loader_path/../lib' ;;
+    windows) _rpath='' ;;  # DLLs land in bin/ next to the exes
     *)     _rpath='$ORIGIN/../lib' ;;
   esac
   args+=(
     -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON
     -DCLANG_LINK_CLANG_DYLIB=ON -DLIBCLANG_BUILD_STATIC=OFF
     -DLLVM_ENABLE_PIC=ON
+  )
+  [ -n "$_rpath" ] && args+=(
     -DCMAKE_SKIP_INSTALL_RPATH=FALSE -DCMAKE_SKIP_RPATH=FALSE
     -DCMAKE_INSTALL_RPATH="$_rpath" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
   )
