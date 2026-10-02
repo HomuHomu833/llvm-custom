@@ -46,7 +46,7 @@ on:
         type: boolean
         default: true
       shared:
-        description: "Link tools against shared libLLVM/libclang-cpp (rpath'd)"
+        description: "Link tools against shared libLLVM (pass plugins) (rpath'd)"
         required: false
         type: boolean
         default: false

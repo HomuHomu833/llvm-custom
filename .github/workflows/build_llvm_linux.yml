@@ -32,7 +32,7 @@ on:
         required: false
         type: boolean
       shared:
-        description: "Shared libLLVM/libclang-cpp (musl ignores it)"
+        description: "Shared libLLVM (pass plugins) (musl ignores it)"
         default: false
         required: false
         type: boolean

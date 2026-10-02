@@ -32,7 +32,7 @@ on:
         required: false
         type: boolean
       shared:
-        description: "Shared libLLVM/libclang-cpp (dynamic bionic tools)"
+        description: "Shared libLLVM (pass plugins) (dynamic bionic tools)"
         default: false
         required: false
         type: boolean
