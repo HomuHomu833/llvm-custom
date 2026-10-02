@@ -31,6 +31,11 @@ on:
         default: true
         required: false
         type: boolean
+      shared:
+        description: "Shared libLLVM/libclang-cpp (static targets ignore it)"
+        default: false
+        required: false
+        type: boolean
       only:
         description: "Only these targets (JSON array), default all"
         required: false
@@ -52,6 +57,7 @@ jobs:
       pgo: ${{ inputs.pgo }}
       mlgo: ${{ inputs.mlgo }}
       lto: ${{ inputs.lto }}
+      shared: ${{ inputs.shared }}
       only: ${{ inputs.only }}
       targets: >-
         ["arm64-apple-darwin", "arm64e-apple-darwin",

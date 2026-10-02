@@ -20,6 +20,11 @@
 #                      targets whose triple the AOT compiler accepts
 #   CLANG_VENDOR       overrides the composed vendor string outright
 #   ZLIB_VERSION / ZSTD_VERSION  bundled dependency versions
+#   LLVM_SHARED        1 = link the tools against libLLVM / libclang-cpp shared
+#                      libraries (installed under lib/) with an $ORIGIN-relative
+#                      rpath, so the tools find them wherever the tree is
+#                      unpacked. Ignored, with a warning, on fully static
+#                      (bionic/musl) and Windows targets.
 #   BUILD_PROFDATA     1 = generate the PGO profile for this llvm revision and
 #                      exit, instead of cross building. Needs only NDK_VERSION
 #                      (via fetch-source.sh); PLATFORM/TARGET are unused.
@@ -246,6 +251,16 @@ case "$PLATFORM" in
   *) echo "Unknown PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
+
+# Shared libLLVM/libclang-cpp. A fully static link cannot load a .so, and the
+# dylib build is not supported for Windows, so those keep the static layout.
+LLVM_SHARED="${LLVM_SHARED:-0}"
+if [ "$LLVM_SHARED" = 1 ]; then
+  if [ "$LLVM_STATIC" = ON ] || [ "$PLATFORM" = windows ]; then
+    log "LLVM_SHARED ignored: $TARGET ($PLATFORM) is built static"
+    LLVM_SHARED=0
+  fi
+fi
 
 # Extra cmake flags for zstd + LLVM: env-supplied plus Darwin SDK/libtool/arch
 # pins so CMake doesn't probe a host Xcode. Other platforms need none.
@@ -735,6 +750,21 @@ args=(
   -DCLANG_REPOSITORY_STRING="${CLANG_REPOSITORY_STRING:-llvm-custom}"
   -DPACKAGE_BUGREPORT="${PACKAGE_BUGREPORT:-}"
 )
+if [ "$LLVM_SHARED" = 1 ]; then
+  # The tools load libLLVM / libclang-cpp from <prefix>/lib, found relative to
+  # the binary so the tree can be moved. Later -D wins over the static ones above.
+  case "$PLATFORM" in
+    macos) _rpath='@loader_path/../lib' ;;
+    *)     _rpath='$ORIGIN/../lib' ;;
+  esac
+  args+=(
+    -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON
+    -DCLANG_LINK_CLANG_DYLIB=ON -DLIBCLANG_BUILD_STATIC=OFF
+    -DLLVM_ENABLE_PIC=ON
+    -DCMAKE_SKIP_INSTALL_RPATH=FALSE -DCMAKE_SKIP_RPATH=FALSE
+    -DCMAKE_INSTALL_RPATH="$_rpath" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
+  )
+fi
 # Pin zlib + zstd to our bundled static builds so find_package() doesn't grab an
 # incompatible host .so (which lld drops, leaving zlib/zstd symbols undefined).
 args+=(
@@ -813,6 +843,12 @@ _want scan-build-py          clang/tools/scan-build-py
 _want clang-tidy             clang-tools-extra/clang-tidy
 _want clangd                 clang-tools-extra/clangd
 _want lld                    lld
+if [ "$LLVM_SHARED" = 1 ]; then
+  # the shared libraries themselves, or the tools install without what they load
+  DIST+=(LLVM)
+  _want clang-cpp            clang/tools/clang-shlib
+  _want libclang             clang/tools/libclang
+fi
 _want bolt                   bolt
 if grep -qs 'add_llvm_tool(merge-fdata' "$SRC/bolt/tools/merge-fdata/CMakeLists.txt"; then
   DIST+=(merge-fdata)
@@ -872,4 +908,9 @@ fi
 find "$OUT/bin" -type f ! -lname '*' | while IFS= read -r f; do
   "$CROSS_STRIP" "$f" 2>/dev/null || true
 done
+if [ "$LLVM_SHARED" = 1 ]; then
+  find "$OUT/lib" -maxdepth 1 -type f \( -name '*.so*' -o -name '*.dylib' \) | while IFS= read -r f; do
+    "$CROSS_STRIP" "$f" 2>/dev/null || true
+  done
+fi
 log "Done -> $OUT"

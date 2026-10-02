@@ -45,6 +45,11 @@ on:
         required: false
         type: boolean
         default: true
+      shared:
+        description: "Link tools against shared libLLVM/libclang-cpp (rpath'd)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -118,6 +123,7 @@ jobs:
             -e ENABLE_PGO='${{ inputs.pgo && 1 || 0 }}' \
             -e ENABLE_MLGO='${{ inputs.mlgo && 1 || 0 }}' \
             -e LLVM_LTO='${{ inputs.lto && 'Thin' || 'OFF' }}' \
+            -e LLVM_SHARED='${{ inputs.shared && 1 || 0 }}' \
             -e PGO_URL_BASE='https://github.com/${{ github.repository }}/releases/download/profdata' \
             -e CLANG_REPOSITORY_STRING="https://github.com/$PUB_REPO ${{ github.sha }}" \
             -e PACKAGE_BUGREPORT="https://github.com/$PUB_OWNER/android-ndk-custom/issues/" \
