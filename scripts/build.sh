@@ -23,8 +23,8 @@
 #   LLVM_SHARED        1 = link the tools against libLLVM / libclang-cpp shared
 #                      libraries (installed under lib/) with an $ORIGIN-relative
 #                      rpath, so the tools find them wherever the tree is
-#                      unpacked. Ignored, with a warning, on fully static
-#                      (bionic/musl) and Windows targets.
+#                      unpacked. Ignored, with a warning, on musl (always
+#                      static) and Windows; bionic links dynamically.
 #   BUILD_PROFDATA     1 = generate the PGO profile for this llvm revision and
 #                      exit, instead of cross building. Needs only NDK_VERSION
 #                      (via fetch-source.sh); PLATFORM/TARGET are unused.
@@ -188,7 +188,12 @@ case "$PLATFORM" in
     CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
     TRIPLE="${TARGET}${API}"
-    CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static -Wl,-z,max-page-size=16384"; LLVM_STATIC=ON
+    if [ "${LLVM_SHARED:-0}" = 1 ]; then
+      # dynamic against the NDK's libc.so: the Android linker honours $ORIGIN
+      CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_LDFLAGS="-Wl,-z,max-page-size=16384"
+    else
+      CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static -Wl,-z,max-page-size=16384"; LLVM_STATIC=ON
+    fi
     ;;
   linux)
     TC="/opt/zig-as-llvm"
@@ -252,8 +257,8 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# Shared libLLVM/libclang-cpp. A fully static link cannot load a .so, and the
-# dylib build is not supported for Windows, so those keep the static layout.
+# Shared libLLVM/libclang-cpp. musl is always static and the dylib build is not
+# supported for Windows, so those keep the static layout (bionic goes dynamic).
 LLVM_SHARED="${LLVM_SHARED:-0}"
 if [ "$LLVM_SHARED" = 1 ]; then
   if [ "$LLVM_STATIC" = ON ] || [ "$PLATFORM" = windows ]; then
@@ -280,7 +285,8 @@ fi
 # one symbol from every member that branches to __set_errno_internal, which
 # libc.a itself can be asked for. Probed, since it costs a flag if the linker
 # turns out not to take it.
-if [ "$PLATFORM" = bionic ]; then
+if [ "$PLATFORM" = bionic ] && [ "$LLVM_SHARED" != 1 ]; then
+  # libc.a stub ordering only matters for the static link
   mkdir -p "$BUILD_DIR"
   printf '%s\n' __set_errno_internal __bionic_setjmp_checksum_mismatch \
     > "$BUILD_DIR/symbol-order.txt"
