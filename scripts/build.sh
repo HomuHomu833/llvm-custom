@@ -872,4 +872,8 @@ fi
 find "$OUT/bin" -type f ! -lname '*' | while IFS= read -r f; do
   "$CROSS_STRIP" "$f" 2>/dev/null || true
 done
+# Ad-hoc (re)sign what strip broke; Apple Silicon kills unsigned binaries.
+if [ "$PLATFORM" = macos ]; then
+  "$SCRIPT_DIR/macos-sign.sh" "$OUT"
+fi
 log "Done -> $OUT"
