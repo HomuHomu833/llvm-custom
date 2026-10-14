@@ -184,6 +184,12 @@ case "$PLATFORM" in
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
     TRIPLE="${TARGET}${API}"
     CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static -Wl,-z,max-page-size=16384"; LLVM_STATIC=ON
+    # Pre-4.14 kernels reject MADV_WIPEONFORK with EINVAL, and newer bionic's
+    # arc4random aborts on that ("arc4random data MADV_WIPEONFORK failed").
+    # Wrap madvise in every executable to emulate it (see the .c).
+    mkdir -p "$BUILD_DIR"
+    "$CROSS_CC" -O2 -fPIC -c "$PATCHES_DIR/bionic/wipeonfork_compat.c" -o "$BUILD_DIR/bionic_wipeonfork_compat.o"
+    CROSS_LDFLAGS="$CROSS_LDFLAGS $BUILD_DIR/bionic_wipeonfork_compat.o -Wl,--wrap=madvise"
     ;;
   linux)
     TC="/opt/zig-as-llvm"
