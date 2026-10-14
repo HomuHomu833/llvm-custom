@@ -190,6 +190,12 @@ case "$PLATFORM" in
     mkdir -p "$BUILD_DIR"
     "$CROSS_CC" -O2 -fPIC -c "$PATCHES_DIR/bionic/wipeonfork_compat.c" -o "$BUILD_DIR/bionic_wipeonfork_compat.o"
     CROSS_LDFLAGS="$CROSS_LDFLAGS $BUILD_DIR/bionic_wipeonfork_compat.o -Wl,--wrap=madvise"
+    # arm/arm64 executables need an 8-word-aligned PT_TLS to clear bionic's TCB
+    # slots, or startup aborts with "executable's TLS segment is underaligned".
+    # crtbegin only supplies that from API 29 (older official NDKs, e.g. r25,
+    # left it at 8 bytes), so link our own copy in. No-op elsewhere.
+    "$CROSS_CC" -c "$PATCHES_DIR/bionic/tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
+    CROSS_LDFLAGS="$CROSS_LDFLAGS $BUILD_DIR/bionic_tls_align.o"
     ;;
   linux)
     TC="/opt/zig-as-llvm"
