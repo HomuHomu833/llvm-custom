@@ -4,7 +4,8 @@
 # Writes $ROOTDIR/.build-env for build.sh to source.
 #
 #   NDK_VERSION   required (e.g. 26)
-#   NDK_REVISION  optional (e.g. d)
+#   NDK_REVISION  optional, appended verbatim to r<version> (e.g. d, b-beta1,
+#                 -rc1); use the spelling Google publishes
 #   PLATFORM      optional (bionic|linux|bsd|windows|macos); picks the default patch set
 #                 and the bionic-only source fixups
 #   PATCHSET      optional extra patch dir under patches/ (e.g. musl); overrides
@@ -32,7 +33,9 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PATCHES_DIR="${PATCHES_DIR:-$SCRIPT_DIR/../patches}"
 
-NDK_DIR="$ROOTDIR/android-ndk-r${NDK_VERSION}${NDK_REVISION}"
+NDK_RELEASE="r${NDK_VERSION}${NDK_REVISION}"
+NDK_NAME="android-ndk-$NDK_RELEASE"
+NDK_DIR="$ROOTDIR/$NDK_NAME"
 NDK_LLVM="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
 CLANG_SOURCE_INFO="$NDK_LLVM/clang_source_info.md"
 SRC="${SRC:-$ROOTDIR/llvm-project}"
@@ -128,7 +131,7 @@ git_fetch() {
 # -linux.zip). Ask for both spellings instead of inferring one from our own
 # release names.
 ndk_url() {
-  local base="https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}" u
+  local base="https://dl.google.com/android/repository/$NDK_NAME" u
   for u in "$base-linux.zip" "$base-linux-x86_64.zip"; do
     if aria2c --dry-run=true --console-log-level=error --check-certificate=false \
                --max-tries=1 --connect-timeout=15 "$u" >/dev/null 2>&1; then
@@ -139,15 +142,20 @@ ndk_url() {
 }
 
 if [ ! -d "$NDK_DIR" ]; then
-  log "Downloading NDK r${NDK_VERSION}${NDK_REVISION}"
-  NDK_URL=$(ndk_url) || { echo "no NDK r${NDK_VERSION}${NDK_REVISION} archive at dl.google.com" >&2; exit 1; }
+  log "Downloading NDK $NDK_RELEASE"
+  NDK_URL=$(ndk_url) || { echo "no NDK $NDK_RELEASE archive at dl.google.com" >&2; exit 1; }
+  # The top-level directory does not always match the requested revision:
+  # r24-rc1 unpacks as android-ndk-r24-beta3. Remember what was already there
+  # so another NDK in ROOTDIR cannot be mistaken for this one.
+  _ndk_before=$(find "$ROOTDIR" -maxdepth 1 -mindepth 1 -type d -name 'android-ndk-*' -printf '%f\n' | sort)
   fetch_unpack "$NDK_URL" "$ROOTDIR/android-ndk.zip" "$ROOTDIR"
-  # r24-rc1 and r26-rc1 unpack to android-ndk-r24-beta3/ and -r26-beta2/, not to
-  # the revision we asked for. Take what landed.
   if [ ! -d "$NDK_DIR" ]; then
-    NDK_DIR="$(find "$ROOTDIR" -maxdepth 1 -mindepth 1 -type d -name 'android-ndk-*' | head -n1)"
-    [ -n "$NDK_DIR" ] || { echo "no android-ndk-* directory unpacked under $ROOTDIR" >&2; exit 1; }
-    log "Archive unpacked as $(basename "$NDK_DIR")"
+    _ndk_new=$(comm -13 <(printf '%s\n' "$_ndk_before") \
+      <(find "$ROOTDIR" -maxdepth 1 -mindepth 1 -type d -name 'android-ndk-*' -printf '%f\n' | sort) | head -n1)
+    [ -n "$_ndk_new" ] || _ndk_new=$(find "$ROOTDIR" -maxdepth 1 -mindepth 1 -type d -name 'android-ndk-*' -printf '%f\n' | head -n1)
+    [ -n "$_ndk_new" ] || { echo "no android-ndk-* directory unpacked under $ROOTDIR" >&2; exit 1; }
+    NDK_DIR="$ROOTDIR/$_ndk_new"
+    log "Archive unpacked as $_ndk_new"
     NDK_LLVM="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
     CLANG_SOURCE_INFO="$NDK_LLVM/clang_source_info.md"
   fi
@@ -170,10 +178,17 @@ if [ -f "$CLANG_SOURCE_INFO" ]; then
 fi
 if [ -z "$ANDROID_REV" ] && [ -n "$BASE_REV" ]; then
   # r21-r23 predate clang_source_info.md. Their llvm_android branch is named
-  # after the llvm revision: some keep the point-release suffix
-  # (llvm-r399163b, llvm-r416183), others drop it (r365631c3 -> llvm-r365631).
-  # Ask googlesource which ref exists rather than guess.
-  for c in "llvm-r$BASE_REV" "llvm-r${BASE_REV%%[a-z]*}"; do
+  # after the llvm revision, but not always with the exact suffix Google's
+  # AndroidVersion.txt carries: r399163b1 lives on llvm-r399163b, while
+  # r365631c3 and r416183c1 live on llvm-r365631 and llvm-r416183. Try the
+  # full revision, then without its trailing point-release number, then
+  # without the letter suffix, asking googlesource which ref exists.
+  _cands=("llvm-r$BASE_REV")
+  case "$BASE_REV" in
+    *[a-z]*[0-9]) _cands+=("llvm-r${BASE_REV%[0-9]}") ;;
+  esac
+  _cands+=("llvm-r${BASE_REV%%[a-z]*}")
+  for c in "${_cands[@]}"; do
     if git ls-remote --exit-code --heads "$LLVM_ANDROID_REPO" "refs/heads/$c" >/dev/null 2>&1; then
       ANDROID_REV="refs/heads/$c"; break
     fi
