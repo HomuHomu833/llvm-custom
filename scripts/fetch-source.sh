@@ -123,10 +123,25 @@ git_fetch() {
   fi
 }
 
+# Google has published the same archive under -linux.zip and -linux-x86_64.zip
+# depending on the release (r21/r22 use -linux-x86_64.zip, r23 and later
+# -linux.zip). Ask for both spellings instead of inferring one from our own
+# release names.
+ndk_url() {
+  local base="https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}" u
+  for u in "$base-linux.zip" "$base-linux-x86_64.zip"; do
+    if aria2c --dry-run=true --console-log-level=error --check-certificate=false \
+               --max-tries=1 --connect-timeout=15 "$u" >/dev/null 2>&1; then
+      printf '%s\n' "$u"; return 0
+    fi
+  done
+  return 1
+}
+
 if [ ! -d "$NDK_DIR" ]; then
   log "Downloading NDK r${NDK_VERSION}${NDK_REVISION}"
-  fetch_unpack "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}${NDK_REVISION}-linux.zip" \
-    "$ROOTDIR/android-ndk.zip" "$ROOTDIR"
+  NDK_URL=$(ndk_url) || { echo "no NDK r${NDK_VERSION}${NDK_REVISION} archive at dl.google.com" >&2; exit 1; }
+  fetch_unpack "$NDK_URL" "$ROOTDIR/android-ndk.zip" "$ROOTDIR"
   # r24-rc1 and r26-rc1 unpack to android-ndk-r24-beta3/ and -r26-beta2/, not to
   # the revision we asked for. Take what landed.
   if [ ! -d "$NDK_DIR" ]; then
@@ -141,16 +156,32 @@ fi
 ver_line=$("$NDK_LLVM/bin/clang" --version)
 LLVM_VERSION=$(echo "$ver_line" | sed -n 's/.*clang version \([0-9][0-9.]*[a-zA-Z0-9]*\).*/\1/p')
 LLVM_REV=$(echo "$ver_line" | sed -E 's/.*llvm-project ([a-f0-9]{40}).*/\1/' | head -n1)
-ANDROID_REV=$(grep 'llvm_android/+/.*' "$CLANG_SOURCE_INFO" | sed -n 's/.*llvm_android\/\+//; s/\/patches.*//p' | sed 's/\/\+//g; s/^\+//g' | head -n1)
-[ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] && [ -n "$ANDROID_REV" ] || {
-  echo "Failed to resolve LLVM/android versions from the NDK" >&2; exit 1; }
+LLVM_ANDROID_REPO="https://android.googlesource.com/toolchain/llvm_android"
 # The "based on <release>" half of the vendor string, read from the NDK's own
 # AndroidVersion.txt so ours says "based on r574158c" exactly like Google's
-# instead of a 40-char sha. That file has carried the line since at least r25;
-# fall back to the llvm_android commit if a tree ever turns up without it.
+# instead of a 40-char sha. It stays empty when Google's file has no such line,
+# and build.sh then leaves the phrase out too.
 CLANG_RELEASE=$(sed -n 's/^based on \(.*\)$/\1/p' "$NDK_LLVM/AndroidVersion.txt" 2>/dev/null | tr -d '\r' | head -n1)
-CLANG_RELEASE="${CLANG_RELEASE:-$ANDROID_REV}"
-log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV / based on $CLANG_RELEASE"
+BASE_REV=$(printf '%s\n' "$CLANG_RELEASE" | sed -n 's/^r\([0-9][0-9]*[a-z0-9]*\)$/\1/p')
+
+ANDROID_REV=""
+if [ -f "$CLANG_SOURCE_INFO" ]; then
+  ANDROID_REV=$(grep 'llvm_android/+/.*' "$CLANG_SOURCE_INFO" | sed -n 's/.*llvm_android\/\+//; s/\/patches.*//p' | sed 's/\/\+//g; s/^\+//g' | head -n1)
+fi
+if [ -z "$ANDROID_REV" ] && [ -n "$BASE_REV" ]; then
+  # r21-r23 predate clang_source_info.md. Their llvm_android branch is named
+  # after the llvm revision: some keep the point-release suffix
+  # (llvm-r399163b, llvm-r416183), others drop it (r365631c3 -> llvm-r365631).
+  # Ask googlesource which ref exists rather than guess.
+  for c in "llvm-r$BASE_REV" "llvm-r${BASE_REV%%[a-z]*}"; do
+    if git ls-remote --exit-code --heads "$LLVM_ANDROID_REPO" "refs/heads/$c" >/dev/null 2>&1; then
+      ANDROID_REV="refs/heads/$c"; break
+    fi
+  done
+fi
+[ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] && [ -n "$ANDROID_REV" ] || {
+  echo "Failed to resolve LLVM/android versions from the NDK" >&2; exit 1; }
+log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV${CLANG_RELEASE:+ / based on $CLANG_RELEASE}"
 
 if [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
@@ -163,13 +194,35 @@ fi
 git init -q "$SRC"
 
 log "Applying llvm_android patches"
-git_fetch "https://android.googlesource.com/toolchain/llvm_android" "$ANDROID_REV" "$ROOTDIR/llvm_android"
+git_fetch "$LLVM_ANDROID_REPO" "$ANDROID_REV" "$ROOTDIR/llvm_android"
 PATCH_JSON="$ROOTDIR/llvm_android/patches/PATCHES.json"
-[ -f "$PATCH_JSON" ] || { echo "no $PATCH_JSON in llvm_android $ANDROID_REV" >&2; exit 1; }
-command -v python3 >/dev/null || { echo "python3 is required to read PATCHES.json" >&2; exit 1; }
-mapfile -t PATCHES < <(python3 -c 'import json, sys
+SVN_REV="${BASE_REV%%[a-z]*}"
+if [ ! -d "$ROOTDIR/llvm_android/patches" ]; then
+  # r21's llvm_android predates patch management; there is nothing to apply.
+  log "llvm_android $ANDROID_REV has no patches/, skipping android patches"
+  PATCHES=()
+elif [ ! -f "$PATCH_JSON" ]; then
+  echo "no $PATCH_JSON in llvm_android $ANDROID_REV" >&2; exit 1
+else
+  command -v python3 >/dev/null || { echo "python3 is required to read PATCHES.json" >&2; exit 1; }
+  if [ -z "$SVN_REV" ]; then
+    for f in "$ROOTDIR/llvm_android/src/llvm_android/android_version.py" \
+             "$ROOTDIR/llvm_android/android_version.py"; do
+      [ -f "$f" ] || continue
+      SVN_REV=$(sed -n "s/^[a-z_]*svn_revision = 'r\([0-9][0-9]*\).*/\1/p" "$f" | head -n1)
+      [ -n "$SVN_REV" ] && break
+    done
+  fi
+  [ -n "$SVN_REV" ] || { echo "Failed to resolve the llvm revision for $ANDROID_REV" >&2; exit 1; }
+  mapfile -t PATCHES < <(python3 -c 'import json, sys
+svn = int(sys.argv[2])
 for p in json.load(open(sys.argv[1])):
-    print(p["rel_patch_path"])' "$PATCH_JSON")
+    r = p.get("version_range") or {}
+    start = r.get("from", p.get("start_version")) or 0
+    end = r.get("until", p.get("end_version"))
+    if start <= svn and (end is None or svn < end):
+        print(p["rel_patch_path"])' "$PATCH_JSON" "$SVN_REV")
+fi
 for p in "${PATCHES[@]:-}"; do
   [ -n "$p" ] || continue
   f="$ROOTDIR/llvm_android/patches/$p"
@@ -185,8 +238,14 @@ for c in "$ROOTDIR/llvm_android/src/llvm_android/constants.py" "$ROOTDIR/llvm_an
   LLVM_TARGETS=$(sed -n 's/^ANDROID_TARGETS.*set(\[\(.*\)\]).*/\1/p' "$c" | head -n1 | tr -d " '" | tr ',' ';')
   [ -n "$LLVM_TARGETS" ] && break
 done
+if [ -z "${LLVM_TARGETS:-}" ]; then
+  # r21 predates constants.py; Google's list lived in build.py as
+  # STAGE2_TARGETS there and reads 'AArch64;ARM;BPF;X86'.
+  c="$ROOTDIR/llvm_android/build.py"
+  [ -f "$c" ] && LLVM_TARGETS=$(sed -n "s/^STAGE2_TARGETS = '\(.*\)'/\1/p" "$c" | head -n1)
+fi
 [ -n "${LLVM_TARGETS:-}" ] || {
-  echo "Failed to read ANDROID_TARGETS from llvm_android $ANDROID_REV" >&2; exit 1; }
+  echo "Failed to read the target list from llvm_android $ANDROID_REV" >&2; exit 1; }
 log "Targets: $LLVM_TARGETS"
 
 rm -rf "$ROOTDIR/llvm_android"

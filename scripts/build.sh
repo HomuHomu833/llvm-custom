@@ -623,7 +623,9 @@ compose_vendor() {
   [ "$LLVM_LTO" != OFF ] && l=1
   [ ${#MLGO_ARGS[@]} -gt 0 ] && m=1
   VENDOR_OPTS="$(_mark "$p" pgo), $(_mark 0 bolt), $(_mark "$l" lto), $(_mark "$m" mlgo)"
-  CLANG_VENDOR="Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }$VENDOR_OPTS, based on ${CLANG_RELEASE:-unknown})"
+  local based=""
+  [ -z "${CLANG_RELEASE:-}" ] || based=", based on $CLANG_RELEASE"
+  CLANG_VENDOR="Android (${LLVM_BUILD_ID:+$LLVM_BUILD_ID, }$VENDOR_OPTS$based)"
   return 0
 }
 compose_vendor
