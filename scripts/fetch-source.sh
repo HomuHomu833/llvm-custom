@@ -164,12 +164,16 @@ git init -q "$SRC"
 
 log "Applying llvm_android patches"
 git_fetch "https://android.googlesource.com/toolchain/llvm_android" "$ANDROID_REV" "$ROOTDIR/llvm_android"
-mapfile -t PATCHES < <(grep -oP 'patches/\S+' "$CLANG_SOURCE_INFO" | sed 's/)$//')
+PATCH_JSON="$ROOTDIR/llvm_android/patches/PATCHES.json"
+[ -f "$PATCH_JSON" ] || { echo "no $PATCH_JSON in llvm_android $ANDROID_REV" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required to read PATCHES.json" >&2; exit 1; }
+mapfile -t PATCHES < <(python3 -c 'import json, sys
+for p in json.load(open(sys.argv[1])):
+    print(p["rel_patch_path"])' "$PATCH_JSON")
 for p in "${PATCHES[@]:-}"; do
   [ -n "$p" ] || continue
-  for base in "$ROOTDIR/llvm_android/$p" "$ROOTDIR/llvm_android/cherry/$p"; do
-    if [ -f "$base" ]; then git -C "$SRC" apply "$base" 2>/dev/null || true; break; fi
-  done
+  f="$ROOTDIR/llvm_android/patches/$p"
+  [ -f "$f" ] && git -C "$SRC" apply "$f" 2>/dev/null || true
 done
 
 # Take the backend list from the same llvm_android revision rather than pinning
