@@ -868,6 +868,10 @@ if [ -d "$_ndk_bin" ]; then
     _b="$(basename "$_f")"
     case "$_b" in
       lldb*|yasm) continue ;;
+      # Old NDKs rename clang-tidy to clang-tidy.real and ship a wrapper in its
+      # place. We install the tool directly, so there is no wrapper backing
+      # file to produce.
+      *.real) continue ;;
       # cmake's VERSION property names the versioned driver on unix only, so a
       # windows build has clang.exe and no clang-<major>.exe. Google's own
       # windows prebuilt ships the same set, so nothing is missing there.

@@ -316,6 +316,10 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
               '\(LLVM_\)\?DEMANGLE_UTILITY_H' exception
   add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
               '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' exception
+  # ItaniumDemangle.h uses std::is_pod but only got <type_traits> through
+  # <utility>/<numeric>; newer libc++ no longer includes it transitively.
+  add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
+              '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' type_traits
   # std::error_code in the atom-based lld/Core, which LLVM 17 deleted, so this
   # one is r25-only rather than merely r25-first.
   add_include lld/include/lld/Core/File.h LLD_CORE_FILE_H system_error
