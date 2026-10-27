@@ -163,7 +163,16 @@ fi
 
 ver_line=$("$NDK_LLVM/bin/clang" --version)
 LLVM_VERSION=$(echo "$ver_line" | sed -n 's/.*clang version \([0-9][0-9.]*[a-zA-Z0-9]*\).*/\1/p')
-LLVM_REV=$(echo "$ver_line" | sed -E 's/.*llvm-project ([a-f0-9]{40}).*/\1/' | head -n1)
+LLVM_REV=$(echo "$ver_line" | sed -n -E 's/.*llvm-project ([a-f0-9]{40}).*/\1/p' | head -n1)
+# r20 and older predate the llvm-project monorepo: their version string names
+# toolchain/llvm and toolchain/clang separately. Keep the llvm revision as the
+# key (it is what profiles and patches are named after) and fetch the split
+# clang repo alongside it.
+SPLIT_LLVM_REV=$(echo "$ver_line" | sed -n -E 's/.*toolchain\/llvm ([a-f0-9]{40}).*/\1/p' | head -n1)
+SPLIT_CLANG_REV=$(echo "$ver_line" | sed -n -E 's/.*toolchain\/clang ([a-f0-9]{40}).*/\1/p' | head -n1)
+if [ -z "$LLVM_REV" ] && [ -n "$SPLIT_LLVM_REV" ]; then
+  LLVM_REV="$SPLIT_LLVM_REV"
+fi
 LLVM_ANDROID_REPO="https://android.googlesource.com/toolchain/llvm_android"
 # The "based on <release>" half of the vendor string, read from the NDK's own
 # AndroidVersion.txt so ours says "based on r574158c" exactly like Google's
@@ -176,7 +185,7 @@ ANDROID_REV=""
 if [ -f "$CLANG_SOURCE_INFO" ]; then
   ANDROID_REV=$(grep 'llvm_android/+/.*' "$CLANG_SOURCE_INFO" | sed -n 's/.*llvm_android\/\+//; s/\/patches.*//p' | sed 's/\/\+//g; s/^\+//g' | head -n1)
 fi
-if [ -z "$ANDROID_REV" ] && [ -n "$BASE_REV" ]; then
+if [ -z "$ANDROID_REV" ] && [ -n "$BASE_REV" ] && [ -z "$SPLIT_LLVM_REV" ]; then
   # r21-r23 predate clang_source_info.md. Their llvm_android branch is named
   # after the llvm revision, but not always with the exact suffix Google's
   # AndroidVersion.txt carries: r399163b1 lives on llvm-r399163b, while
@@ -194,11 +203,27 @@ if [ -z "$ANDROID_REV" ] && [ -n "$BASE_REV" ]; then
     fi
   done
 fi
-[ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] && [ -n "$ANDROID_REV" ] || {
+[ -n "$LLVM_VERSION" ] && [ -n "$LLVM_REV" ] || {
   echo "Failed to resolve LLVM/android versions from the NDK" >&2; exit 1; }
-log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV${CLANG_RELEASE:+ / based on $CLANG_RELEASE}"
+if [ -z "$SPLIT_LLVM_REV" ]; then
+  [ -n "$ANDROID_REV" ] || {
+    echo "Failed to resolve the llvm_android revision from the NDK" >&2; exit 1; }
+  log "LLVM $LLVM_VERSION ($LLVM_REV) / llvm_android $ANDROID_REV${CLANG_RELEASE:+ / based on $CLANG_RELEASE}"
+else
+  [ -n "$SPLIT_CLANG_REV" ] || {
+    echo "Split LLVM source has no clang revision in the NDK version string" >&2; exit 1; }
+  log "LLVM $LLVM_VERSION ($LLVM_REV) / clang $SPLIT_CLANG_REV (split source)${CLANG_RELEASE:+ / based on $CLANG_RELEASE}"
+fi
 
-if [ ! -d "$SRC" ]; then
+if [ -n "$SPLIT_LLVM_REV" ]; then
+  if [ ! -d "$SRC/llvm" ] || [ ! -d "$SRC/clang" ]; then
+    log "Fetching split LLVM/clang source"
+    rm -rf "$SRC"
+    mkdir -p "$SRC"
+    git_fetch "https://android.googlesource.com/toolchain/llvm" "$SPLIT_LLVM_REV" "$SRC/llvm"
+    git_fetch "https://android.googlesource.com/toolchain/clang" "$SPLIT_CLANG_REV" "$SRC/clang"
+  fi
+elif [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
   rm -rf "$SRC"
   git_fetch "https://android.googlesource.com/toolchain/llvm-project" "$LLVM_REV" "$SRC"
@@ -208,28 +233,35 @@ fi
 # /work/.git (which would silently no-op the patches).
 git init -q "$SRC"
 
-log "Applying llvm_android patches"
-git_fetch "$LLVM_ANDROID_REPO" "$ANDROID_REV" "$ROOTDIR/llvm_android"
-PATCH_JSON="$ROOTDIR/llvm_android/patches/PATCHES.json"
-SVN_REV="${BASE_REV%%[a-z]*}"
-if [ ! -d "$ROOTDIR/llvm_android/patches" ]; then
-  # r21's llvm_android predates patch management; there is nothing to apply.
-  log "llvm_android $ANDROID_REV has no patches/, skipping android patches"
-  PATCHES=()
-elif [ ! -f "$PATCH_JSON" ]; then
-  echo "no $PATCH_JSON in llvm_android $ANDROID_REV" >&2; exit 1
+if [ -n "$SPLIT_LLVM_REV" ]; then
+  # r20 predates llvm_android's per-release branches; its toolchain/llvm and
+  # toolchain/clang trees already carry the Android changes. The targets are
+  # the LLVM 8 set from that build (build.py's STAGE2_TARGETS).
+  LLVM_TARGETS="AArch64;ARM;BPF;X86"
+  log "r${NDK_VERSION}: split LLVM source, skipping llvm_android patches"
 else
-  command -v python3 >/dev/null || { echo "python3 is required to read PATCHES.json" >&2; exit 1; }
-  if [ -z "$SVN_REV" ]; then
-    for f in "$ROOTDIR/llvm_android/src/llvm_android/android_version.py" \
-             "$ROOTDIR/llvm_android/android_version.py"; do
-      [ -f "$f" ] || continue
-      SVN_REV=$(sed -n "s/^[a-z_]*svn_revision = 'r\([0-9][0-9]*\).*/\1/p" "$f" | head -n1)
-      [ -n "$SVN_REV" ] && break
-    done
-  fi
-  [ -n "$SVN_REV" ] || { echo "Failed to resolve the llvm revision for $ANDROID_REV" >&2; exit 1; }
-  mapfile -t PATCHES < <(python3 -c 'import json, sys
+  log "Applying llvm_android patches"
+  git_fetch "$LLVM_ANDROID_REPO" "$ANDROID_REV" "$ROOTDIR/llvm_android"
+  PATCH_JSON="$ROOTDIR/llvm_android/patches/PATCHES.json"
+  SVN_REV="${BASE_REV%%[a-z]*}"
+  if [ ! -d "$ROOTDIR/llvm_android/patches" ]; then
+    # r21's llvm_android predates patch management; there is nothing to apply.
+    log "llvm_android $ANDROID_REV has no patches/, skipping android patches"
+    PATCHES=()
+  elif [ ! -f "$PATCH_JSON" ]; then
+    echo "no $PATCH_JSON in llvm_android $ANDROID_REV" >&2; exit 1
+  else
+    command -v python3 >/dev/null || { echo "python3 is required to read PATCHES.json" >&2; exit 1; }
+    if [ -z "$SVN_REV" ]; then
+      for f in "$ROOTDIR/llvm_android/src/llvm_android/android_version.py" \
+               "$ROOTDIR/llvm_android/android_version.py"; do
+        [ -f "$f" ] || continue
+        SVN_REV=$(sed -n "s/^[a-z_]*svn_revision = 'r\([0-9][0-9]*\).*/\1/p" "$f" | head -n1)
+        [ -n "$SVN_REV" ] && break
+      done
+    fi
+    [ -n "$SVN_REV" ] || { echo "Failed to resolve the llvm revision for $ANDROID_REV" >&2; exit 1; }
+    mapfile -t PATCHES < <(python3 -c 'import json, sys
 svn = int(sys.argv[2])
 for p in json.load(open(sys.argv[1])):
     r = p.get("version_range") or {}
@@ -237,33 +269,34 @@ for p in json.load(open(sys.argv[1])):
     end = r.get("until", p.get("end_version"))
     if start <= svn and (end is None or svn < end):
         print(p["rel_patch_path"])' "$PATCH_JSON" "$SVN_REV")
-fi
-for p in "${PATCHES[@]:-}"; do
-  [ -n "$p" ] || continue
-  f="$ROOTDIR/llvm_android/patches/$p"
-  [ -f "$f" ] && git -C "$SRC" apply "$f" 2>/dev/null || true
-done
+  fi
+  for p in "${PATCHES[@]:-}"; do
+    [ -n "$p" ] || continue
+    f="$ROOTDIR/llvm_android/patches/$p"
+    [ -f "$f" ] && git -C "$SRC" apply "$f" 2>/dev/null || true
+  done
 
-# Take the backend list from the same llvm_android revision rather than pinning
-# our own: it grew RISCV and WebAssembly between r25 and r26, and would have
-# gone stale again. The file moved under src/ along the way; the declaration
-# itself has been one line throughout.
-for c in "$ROOTDIR/llvm_android/src/llvm_android/constants.py" "$ROOTDIR/llvm_android/constants.py"; do
-  [ -f "$c" ] || continue
-  LLVM_TARGETS=$(sed -n 's/^ANDROID_TARGETS.*set(\[\(.*\)\]).*/\1/p' "$c" | head -n1 | tr -d " '" | tr ',' ';')
-  [ -n "$LLVM_TARGETS" ] && break
-done
-if [ -z "${LLVM_TARGETS:-}" ]; then
-  # r21 predates constants.py; Google's list lived in build.py as
-  # STAGE2_TARGETS there and reads 'AArch64;ARM;BPF;X86'.
-  c="$ROOTDIR/llvm_android/build.py"
-  [ -f "$c" ] && LLVM_TARGETS=$(sed -n "s/^STAGE2_TARGETS = '\(.*\)'/\1/p" "$c" | head -n1)
+  # Take the backend list from the same llvm_android revision rather than pinning
+  # our own: it grew RISCV and WebAssembly between r25 and r26, and would have
+  # gone stale again. The file moved under src/ along the way; the declaration
+  # itself has been one line throughout.
+  for c in "$ROOTDIR/llvm_android/src/llvm_android/constants.py" "$ROOTDIR/llvm_android/constants.py"; do
+    [ -f "$c" ] || continue
+    LLVM_TARGETS=$(sed -n 's/^ANDROID_TARGETS.*set(\[\(.*\)\]).*/\1/p' "$c" | head -n1 | tr -d " '" | tr ',' ';')
+    [ -n "$LLVM_TARGETS" ] && break
+  done
+  if [ -z "${LLVM_TARGETS:-}" ]; then
+    # r21 predates constants.py; Google's list lived in build.py as
+    # STAGE2_TARGETS there and reads 'AArch64;ARM;BPF;X86'.
+    c="$ROOTDIR/llvm_android/build.py"
+    [ -f "$c" ] && LLVM_TARGETS=$(sed -n "s/^STAGE2_TARGETS = '\(.*\)'/\1/p" "$c" | head -n1)
+  fi
+
+  rm -rf "$ROOTDIR/llvm_android"
 fi
 [ -n "${LLVM_TARGETS:-}" ] || {
   echo "Failed to read the target list from llvm_android $ANDROID_REV" >&2; exit 1; }
 log "Targets: $LLVM_TARGETS"
-
-rm -rf "$ROOTDIR/llvm_android"
 
 apply_set() {
   local dir="$1" strict="$2" p
@@ -344,6 +377,17 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
       log "  + sancov createOrDie explicit-ctor fix"
     fi
   fi
+fi
+
+# llvm-profdata 9/10 auto-detects (inputs + 1) / 2 merge threads, then cycles
+# the writer contexts without waiting for the previous input using one. With
+# three profraw files the third races the first and merge segfaults. Force the
+# serial path; the merge is small and the indexed profile is unchanged.
+_perf_helper="$SRC/clang/utils/perf-training/perf-helper.py"
+if [ -f "$_perf_helper" ] &&
+   grep -Fq "cmd = [args[0], 'merge', '-o', args[1]]" "$_perf_helper"; then
+  sed -i "s/cmd = \[args\[0\], 'merge', '-o', args\[1\]\]/cmd = [args[0], 'merge', '-num-threads=1', '-o', args[1]]/" "$_perf_helper"
+  log "profdata: forcing one llvm-profdata merge thread"
 fi
 
 # bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
