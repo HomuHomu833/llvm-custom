@@ -320,6 +320,13 @@ if [ -n "$NDK_MAJOR" ] && [ "$NDK_MAJOR" -le 25 ]; then
   # <utility>/<numeric>; newer libc++ no longer includes it transitively.
   add_include llvm/include/llvm/Demangle/ItaniumDemangle.h \
               '\(LLVM_\)\?DEMANGLE_ITANIUMDEMANGLE_H' type_traits
+  # MicrosoftDemangleNodes.h up to LLVM 13 uses uint*_t and std::string but
+  # only gets <cstdint>/<string> transitively; GCC 13's libstdc++ no longer
+  # provides either. The guard moved from LLVM_SUPPORT_* to LLVM_DEMANGLE_*.
+  add_include llvm/include/llvm/Demangle/MicrosoftDemangleNodes.h \
+              '.*MICROSOFTDEMANGLENODES_H' cstdint
+  add_include llvm/include/llvm/Demangle/MicrosoftDemangleNodes.h \
+              '.*MICROSOFTDEMANGLENODES_H' string
   # std::error_code in the atom-based lld/Core, which LLVM 17 deleted, so this
   # one is r25-only rather than merely r25-first.
   add_include lld/include/lld/Core/File.h LLD_CORE_FILE_H system_error
