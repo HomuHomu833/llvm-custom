@@ -110,6 +110,13 @@ fi
 
 : "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
 SRC="${SRC:-$ROOTDIR/llvm-project}"
+# Old trees lack some of the default projects (bolt arrived with LLVM 14, r20's
+# split source has no polly); configure rejects a missing one, so drop it.
+_projects=""
+for _p in ${PROJECTS//;/ }; do
+  if [ -d "$SRC/$_p" ]; then _projects="$_projects;$_p"; else log "$_p: not in this source tree, skipped"; fi
+done
+PROJECTS="${_projects#;}"
 BUILD_DIR="${BUILD_DIR:-$ROOTDIR/build/$TARGET}"
 INSTALL_DIR="${INSTALL_DIR:-$ROOTDIR/deps/$TARGET}"
 OUT="${OUT:-$ROOTDIR/llvm-$TARGET}"

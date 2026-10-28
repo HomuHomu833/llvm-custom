@@ -222,6 +222,12 @@ if [ -n "$SPLIT_LLVM_REV" ]; then
     mkdir -p "$SRC"
     git_fetch "https://android.googlesource.com/toolchain/llvm" "$SPLIT_LLVM_REV" "$SRC/llvm"
     git_fetch "https://android.googlesource.com/toolchain/clang" "$SPLIT_CLANG_REV" "$SRC/clang"
+    # the version string names only llvm and clang; the rest are pinned in the
+    # NDK's repo manifest (r20 has no polly)
+    for _p in lld clang-tools-extra polly compiler-rt; do
+      _rev=$(sed -n "s|.*name=\"toolchain/$_p\".*revision=\"\([0-9a-f]\{40\}\)\".*|\1|p" "$NDK_LLVM"/manifest_*.xml 2>/dev/null | head -n1)
+      if [ -n "$_rev" ]; then git_fetch "https://android.googlesource.com/toolchain/$_p" "$_rev" "$SRC/$_p"; fi
+    done
   fi
 elif [ ! -d "$SRC" ]; then
   log "Fetching llvm-project source"
