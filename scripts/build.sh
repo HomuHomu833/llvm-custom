@@ -891,6 +891,9 @@ if [ -d "$_ndk_bin" ]; then
       # windows build has clang.exe and no clang-<major>.exe. Google's own
       # windows prebuilt ships the same set, so nothing is missing there.
       clang-[0-9]*) if [ "$PLATFORM" = windows ]; then continue; fi ;;
+      # r20-r23 ship GNU binutils as <triple>-as and friends. android-ndk-custom
+      # builds those itself.
+      *-linux-android*-*) continue ;;
     esac
     file -bL "$_f" 2>/dev/null | grep -q ELF || continue
     [ -e "$OUT/bin/$_b" ] || [ -e "$OUT/bin/$_b.exe" ] || _missing="$_missing $_b"

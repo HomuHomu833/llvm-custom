@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Homura <egzozu.be.bas@gmail.com>
+Date: Mon, 26 Oct 2026 18:35:00 +0000
+Subject: [PATCH] clangd: avoid a thread-local destructor in the root Context
+
+Hexagon's R_HEX_B22_PCREL has +-8MB reach and lld has no thunk for it.
+In a static clangd link the call from libc++abi's __cxa_thread_atexit to
+the C library's __cxa_thread_atexit_impl is out of range, so the link
+fails with
+
+  relocation R_HEX_B22_PCREL out of range ... references
+  '__cxa_thread_atexit_impl'
+
+The only nontrivial C++ thread_local destructor linked into clangd is the
+root Context. Keep the thread-local pointer but leak the empty root; it
+holds no context data, and losing one shared_ptr per thread costs less
+than dropping the whole tool for such a target.
+---
+diff --git a/clang-tools-extra/clangd/support/Context.cpp b/clang-tools-extra/clangd/support/Context.cpp
+--- a/clang-tools-extra/clangd/support/Context.cpp
++++ b/clang-tools-extra/clangd/support/Context.cpp
+@@ -20,7 +20,9 @@ Context Context::clone() const { return Context(DataPtr); }
+ 
+ static Context &currentContext() {
+-  static thread_local auto C = Context::empty();
+-  return C;
++  static thread_local Context *C = nullptr;
++  if (!C)
++    C = new Context(Context::empty());
++  return *C;
+ }
+ 
+ const Context &Context::current() { return currentContext(); }
+-- 
+2.43.0
