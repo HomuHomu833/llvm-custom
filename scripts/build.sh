@@ -717,6 +717,9 @@ fi
 # --- LLVM -------------------------------------------------------------------
 # Every probe has run by now, so this configure is the only one: what it is
 # handed is what gets built.
+# LLVM 13 and older probe zlib with check_library_exists(z ...) and link -lz, so
+# the bundled libz.a has to be on the search path ahead of any system one.
+LLVM_LDFLAGS="$CROSS_LDFLAGS -L$INSTALL_DIR/lib"
 args=(
   -DCMAKE_INSTALL_PREFIX="$OUT"
   -DCMAKE_PREFIX_PATH="$INSTALL_DIR"
@@ -728,9 +731,9 @@ args=(
   -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC"
   -DCMAKE_LINKER="$CROSS_LD" -DCMAKE_AR="$CROSS_AR" -DCMAKE_RANLIB="$CROSS_RANLIB"
   -DCMAKE_STRIP="$CROSS_STRIP"
-  -DCMAKE_EXE_LINKER_FLAGS="$CROSS_LDFLAGS"
-  -DCMAKE_SHARED_LINKER_FLAGS="$CROSS_LDFLAGS"
-  -DCMAKE_MODULE_LINKER_FLAGS="$CROSS_LDFLAGS"
+  -DCMAKE_EXE_LINKER_FLAGS="$LLVM_LDFLAGS"
+  -DCMAKE_SHARED_LINKER_FLAGS="$LLVM_LDFLAGS"
+  -DCMAKE_MODULE_LINKER_FLAGS="$LLVM_LDFLAGS"
   -DLLVM_ENABLE_PROJECTS="$PROJECTS"
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON -DLLVM_USE_STATIC_ZSTD=ON
   -DLLVM_BUILD_STATIC=$LLVM_STATIC -DBUILD_SHARED_LIBS=OFF -DLLVM_LINK_LLVM_DYLIB=OFF
@@ -812,15 +815,20 @@ fi
 # llvm-ranlib, llvm-lib, llvm-strip, llvm-readelf, llvm-addr2line and
 # llvm-windres each have to be asked for by name. clang++ rides on clang.
 #
-# Each entry is gated on its directory existing, because an unknown component is
-# a configure-time SEND_ERROR and these eight trees span LLVM 14 to 21. Pruning
-# beats pinning a list that only suits the newest. Trailing arguments are the
-# symlinks that tool owns, gated with it.
+# Each entry is gated on its directory having a CMakeLists.txt, because an
+# unknown component is a configure-time SEND_ERROR and these trees span LLVM 8
+# to 21. Pruning beats pinning a list that only suits the newest. Trailing
+# arguments are the symlinks that tool owns, each kept only if that CMakeLists
+# declares it: LLVM 12 has scan-build-py without a CMakeLists and llvm-rc
+# without llvm-windres.
 DIST=()
 _want() {
-  [ -d "$SRC/$2" ] || return 0
+  local _cm="$SRC/$2/CMakeLists.txt" _s
+  [ -f "$_cm" ] || return 0
   DIST+=("$1"); shift 2
-  [ "$#" -gt 0 ] && DIST+=("$@")
+  for _s in "$@"; do
+    grep -qw -- "$_s" "$_cm" && DIST+=("$_s")
+  done
   return 0
 }
 _want clang                  clang/tools/driver
