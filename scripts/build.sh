@@ -239,6 +239,21 @@ case "$PLATFORM" in
     [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $ARCH not found in $TC/bin" >&2; exit 1; }
     HOST="$(basename "${CCWRAP%-clang}")"
     CROSS_CC="$TC/bin/${HOST}-clang"; CROSS_CXX="$TC/bin/${HOST}-clang++"
+    # Upstream clang turns on the arm64e pointer authentication ABI only from 21.
+    # Older ones emit plain arm64 code in an arm64e binary, and the first signed
+    # call into the system libc++ (std::call_once) faults. Route the wrappers to
+    # the newer clang the image carries for this slice alone.
+    if [ "$ARCH" = arm64e ]; then
+      _pac="${ARM64E_CLANG_DIR:-/usr/lib/llvm-21/bin}"
+      [ -x "$_pac/clang" ] || { echo "arm64e needs clang 21+ at $_pac" >&2; exit 1; }
+      mkdir -p "$BUILD_DIR/arm64e-cc"
+      for _t in clang clang++; do
+        printf '#!/bin/sh\nexec "%s" -foc-compiler-path=%s "$@"\n' "$TC/bin/${HOST}-$_t" "$_pac" \
+          > "$BUILD_DIR/arm64e-cc/${HOST}-$_t"
+        chmod +x "$BUILD_DIR/arm64e-cc/${HOST}-$_t"
+      done
+      CROSS_CC="$BUILD_DIR/arm64e-cc/${HOST}-clang"; CROSS_CXX="$BUILD_DIR/arm64e-cc/${HOST}-clang++"
+    fi
     CROSS_AR="$TC/bin/${HOST}-ar"; CROSS_RANLIB="$TC/bin/${HOST}-ranlib"
     CROSS_STRIP="$TC/bin/${HOST}-strip"; CROSS_LD="$TC/bin/${HOST}-ld"
     CROSS_OBJCOPY="" # cctools ships no objcopy; unused here

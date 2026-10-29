@@ -52,6 +52,17 @@ RUN . /etc/os-release \
     && cc --version | head -n1 \
     && c++ --version | head -n1
 
+# clang 21 beside the default, for the osxcross arm64e slice only: it is the
+# first upstream release whose driver enables the arm64e pointer authentication
+# ABI. build.sh points that slice's wrappers at /usr/lib/llvm-21/bin.
+ARG ARM64E_CLANG_VERSION=21
+RUN . /etc/os-release \
+    && echo "deb [signed-by=/etc/apt/keyrings/llvm.asc] http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${ARM64E_CLANG_VERSION} main" \
+        > /etc/apt/sources.list.d/llvm-arm64e.list \
+    && apt-get update && apt-get install -y --no-install-recommends "clang-${ARM64E_CLANG_VERSION}" \
+    && rm -rf /var/lib/apt/lists/* \
+    && "/usr/lib/llvm-${ARM64E_CLANG_VERSION}/bin/clang" --version | head -n1
+
 # TensorFlow for MLGO, in a venv at /opt/tf. Not tidiness: llvm/CMakeLists.txt
 # derives the AOT compiler as "${TENSORFLOW_AOT_PATH}/../../../../bin/
 # saved_model_cli", so the package must sit four levels under a prefix that also
