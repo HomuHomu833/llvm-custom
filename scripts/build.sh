@@ -209,6 +209,7 @@ case "$PLATFORM" in
     # left it at 8 bytes), so link our own copy in. No-op elsewhere.
     "$CROSS_CC" -c "$PATCHES_DIR/bionic/tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
     CROSS_LDFLAGS="$CROSS_LDFLAGS $BUILD_DIR/bionic_tls_align.o"
+    nm "$BUILD_DIR/bionic_tls_align.o" 2>/dev/null | grep -q __bionic_tls_align_anchor && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-u,__bionic_tls_align_anchor"
     ;;
   linux)
     TC="/opt/zig-as-llvm"

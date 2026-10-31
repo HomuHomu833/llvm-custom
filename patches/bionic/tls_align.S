@@ -13,20 +13,22 @@
  * ourselves. Linked into every bionic executable (see scripts/build.sh); a no-op
  * object on the architectures/API levels that don't need it.
  *
- * The .reloc keeps .tdata alive if anything ever links with --gc-sections,
- * matching what crtbegin does.
+ * The global symbol is passed to the linker with -u so --gc-sections keeps
+ * .tdata (old assemblers reject the .reloc crtbegin uses for this).
  */
 #if __ANDROID_API__ < 29
 #if defined(__arm__)
 .section .tdata, "awT", %progbits
 .p2align 5
-.text
-.reloc 0, R_ARM_NONE, .tdata
+.globl __bionic_tls_align_anchor
+.type __bionic_tls_align_anchor, %tls_object
+__bionic_tls_align_anchor:
 #elif defined(__aarch64__)
 .section .tdata, "awT", @progbits
 .p2align 6
-.text
-.reloc 0, R_AARCH64_NONE, .tdata
+.globl __bionic_tls_align_anchor
+.type __bionic_tls_align_anchor, %tls_object
+__bionic_tls_align_anchor:
 #endif
 #endif
 
