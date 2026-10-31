@@ -197,6 +197,8 @@ case "$PLATFORM" in
     done
     TRIPLE="${TARGET}${API}"
     CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static -Wl,-z,max-page-size=16384"; LLVM_STATIC=ON
+    # NDK r20/r21 still default to gold, which rejects clang's LTO -O levels.
+    [ -x "$TC/bin/ld.lld" ] && CROSS_LDFLAGS="-fuse-ld=lld $CROSS_LDFLAGS"
     # Pre-4.14 kernels reject MADV_WIPEONFORK with EINVAL, and newer bionic's
     # arc4random aborts on that ("arc4random data MADV_WIPEONFORK failed").
     # Wrap madvise in every executable to emulate it (see the .c).
@@ -892,6 +894,10 @@ fi
 # Older trees install some tools with a plain install() and no install-<x>
 # target, which LLVM_DISTRIBUTION_COMPONENTS rejects. Drop what configure names,
 # reconfigure, and build and copy those binaries ourselves after the install.
+# musl's off_t is always 64-bit and 1.2.4+ no longer declares lseek64, yet the
+# link-only probe still finds the symbol; old raw_ostream.cpp then fails.
+case "$TARGET" in *musl*) args+=(-DHAVE_LSEEK64=OFF) ;; esac
+
 log "Configuring LLVM for $TARGET ($PLATFORM)"
 LOOSE=()
 mkdir -p "$BUILD_DIR"
