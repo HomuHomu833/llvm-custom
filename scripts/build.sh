@@ -855,7 +855,11 @@ _want() {
   return 0
 }
 _want clang                  clang/tools/driver
-_want clang-resource-headers clang/lib/Headers
+if grep -qsw clang-resource-headers "$SRC/clang/lib/Headers/CMakeLists.txt"; then
+  _want clang-resource-headers clang/lib/Headers
+else
+  _want clang-headers clang/lib/Headers
+fi
 _want clang-check            clang/tools/clang-check
 _want clang-format           clang/tools/clang-format
 _want clang-scan-deps        clang/tools/clang-scan-deps
@@ -885,14 +889,43 @@ done
 if [ -d "$SRC/lld" ]; then
   args+=(-DLLD_SYMLINKS_TO_CREATE="lld-link;ld.lld;ld64.lld;wasm-ld;ld")
 fi
-args+=(-DLLVM_DISTRIBUTION_COMPONENTS="$(IFS=';'; printf '%s' "${DIST[*]}")")
-log "Distribution: ${#DIST[@]} components"
-
+# Older trees install some tools with a plain install() and no install-<x>
+# target, which LLVM_DISTRIBUTION_COMPONENTS rejects. Drop what configure names,
+# reconfigure, and build and copy those binaries ourselves after the install.
 log "Configuring LLVM for $TARGET ($PLATFORM)"
-cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}"
+LOOSE=()
+mkdir -p "$BUILD_DIR"
+while :; do
+  _cfg_log="$BUILD_DIR.configure.log"
+  set +e
+  cmake -S "$SRC/llvm" -B "$BUILD_DIR" -G Ninja "${args[@]}" \
+    -DLLVM_DISTRIBUTION_COMPONENTS="$(IFS=';'; printf '%s' "${DIST[*]}")" 2>&1 | tee "$_cfg_log"
+  _rc=${PIPESTATUS[0]}
+  set -e
+  [ "$_rc" -eq 0 ] && break
+  mapfile -t _bad < <(tr '\n' ' ' < "$_cfg_log" | grep -oE "distribution +component +'[^']+'" | grep -oE "'[^']+'" | tr -d "'" | sort -u)
+  [ ${#_bad[@]} -gt 0 ] || exit "$_rc"
+  for _b in "${_bad[@]}"; do
+    log "  $_b has no install target, installing it by hand"
+    LOOSE+=("$_b")
+    for _i in "${!DIST[@]}"; do [ "${DIST[$_i]}" = "$_b" ] && unset 'DIST[_i]'; done
+  done
+  DIST=("${DIST[@]}")
+done
+log "Distribution: ${#DIST[@]} components"
 
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
+if [ ${#LOOSE[@]} -gt 0 ]; then
+  cmake --build "$BUILD_DIR" --target "${LOOSE[@]}"
+  for _b in "${LOOSE[@]}"; do
+    for _f in "$BUILD_DIR/bin/$_b" "$BUILD_DIR/bin/$_b.exe"; do
+      [ -f "$_f" ] || continue
+      install -m755 "$_f" "$OUT/bin/"
+      [ -n "${CROSS_STRIP:-}" ] && "$CROSS_STRIP" "$OUT/bin/${_f##*/}" 2>/dev/null || true
+    done
+  done
+fi
 
 # Every ELF tool the NDK ships has to come back out, or assemble_ndk silently
 # keeps Google's copy: it only replaces a file when one of the same name exists
