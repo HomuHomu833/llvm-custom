@@ -189,6 +189,12 @@ case "$PLATFORM" in
     CROSS_CC="$TC/bin/${TARGET}${API}-clang"; CROSS_CXX="${CROSS_CC}++"
     CROSS_AR="$TC/bin/llvm-ar"; CROSS_RANLIB="$TC/bin/llvm-ranlib"; CROSS_STRIP="$TC/bin/llvm-strip"
     CROSS_OBJCOPY="$TC/bin/llvm-objcopy"; CROSS_LD="$TC/bin/ld"
+    _gnu="${TARGET/armv7a/arm}"
+    for _v in CROSS_RANLIB:ranlib CROSS_STRIP:strip CROSS_OBJCOPY:objcopy; do
+      _n="${_v%%:*}"; [ -x "${!_n}" ] && continue
+      _t="${_v#*:}"; _f="$(ls "$TC/bin/${_gnu}-$_t" "$NDK_DIR"/toolchains/*/prebuilt/linux-x86_64/bin/"${_gnu}-$_t" 2>/dev/null | head -n1 || true)"
+      [ -n "$_f" ] && printf -v "$_n" %s "$_f"
+    done
     TRIPLE="${TARGET}${API}"
     CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static -Wl,-z,max-page-size=16384"; LLVM_STATIC=ON
     # Pre-4.14 kernels reject MADV_WIPEONFORK with EINVAL, and newer bionic's
