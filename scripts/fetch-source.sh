@@ -396,6 +396,15 @@ if [ -f "$_perf_helper" ] &&
   log "profdata: forcing one llvm-profdata merge thread"
 fi
 
+# On older trees a distribution build exports only listed components, so
+# polly's install(EXPORT LLVMExports) names LLVM libraries outside the export
+# set and generate fails. We don't ship libPolly; drop it from the export.
+_pm="$SRC/polly/cmake/polly_macros.cmake"
+if [ -f "$_pm" ] && grep -q '^ *EXPORT LLVMExports$' "$_pm"; then
+  sed -i '/^ *EXPORT LLVMExports$/d' "$_pm"
+  log "polly: not exporting into LLVMExports"
+fi
+
 # LLVM <= 8 refuses LTO on Windows unless CMAKE_LINKER is lld-link, which only
 # fits MSVC-style links. llvm-mingw's driver handles -flto with ld.lld itself.
 _hlo="$SRC/llvm/cmake/modules/HandleLLVMOptions.cmake"
