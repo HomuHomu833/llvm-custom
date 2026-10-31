@@ -396,6 +396,14 @@ if [ -f "$_perf_helper" ] &&
   log "profdata: forcing one llvm-profdata merge thread"
 fi
 
+# LLVM <= 8 refuses LTO on Windows unless CMAKE_LINKER is lld-link, which only
+# fits MSVC-style links. llvm-mingw's driver handles -flto with ld.lld itself.
+_hlo="$SRC/llvm/cmake/modules/HandleLLVMOptions.cmake"
+if [ "${PLATFORM:-}" = windows ] && grep -q 'LTO requires using lld as the linker' "$_hlo"; then
+  sed -i 's/^if(LLVM_ENABLE_LTO AND LLVM_ON_WIN32 AND NOT LINKER_IS_LLD_LINK)$/if(LLVM_ENABLE_LTO AND MSVC AND NOT LINKER_IS_LLD_LINK)/' "$_hlo"
+  log "windows: allowing LTO without lld-link"
+fi
+
 # bionic: gate llvm-rtdyld's x86_64/ELF/linux fast path on !__ANDROID__ (it
 # doesn't compile for Android).
 if [ "${PLATFORM:-}" = bionic ]; then

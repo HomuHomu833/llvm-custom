@@ -847,6 +847,7 @@ DIST=()
 _want() {
   local _cm="$SRC/$2/CMakeLists.txt" _s
   [ -f "$_cm" ] || return 0
+  case "$1" in scan-*) grep -q add_llvm_install_targets "$_cm" || return 0 ;; esac
   DIST+=("$1"); shift 2
   for _s in "$@"; do
     grep -qw -- "$_s" "$_cm" && DIST+=("$_s")
