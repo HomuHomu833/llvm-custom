@@ -357,6 +357,18 @@ if [ "$PLATFORM" = bionic ]; then
 fi
 
 EXTRA_CMAKE_FLAGS=(${EXTRA_CMAKE_FLAGS:-})
+# r23 removed libgcc, but LLVM 12 still asks the driver for -lgcc by default, so
+# every Android link fails with "unable to find library -lgcc". Google's NDK
+# ships compiler-rt builtins instead; make those the default whenever the NDK
+# has no libgcc.a to find. This is about the Android target sysroot, not the
+# host we build clang on: the linux/macos/windows toolchains are used as NDK
+# compilers too. r24 already defaults to compiler-rt, and r20-r22 still ship
+# libgcc, so only r23 changes behaviour here.
+_ndk_tc="${NDK_DIR:-}/toolchains/llvm/prebuilt/linux-x86_64"
+if [ -d "$_ndk_tc" ] && ! find "$_ndk_tc" -name libgcc.a -print -quit 2>/dev/null | grep -q .; then
+  EXTRA_CMAKE_FLAGS+=(-DCLANG_DEFAULT_RTLIB=compiler-rt)
+fi
+unset _ndk_tc
 if [ "$SYSTEM_NAME" = Darwin ]; then
   SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
   [ -n "$SDKROOT" ] && EXTRA_CMAKE_FLAGS+=(-DCMAKE_OSX_SYSROOT="$SDKROOT")
@@ -746,6 +758,14 @@ if [ ! -f "$INSTALL_DIR/lib/libzstd.a" ]; then
 fi
 
 # --- LLVM -------------------------------------------------------------------
+# LLVM <= 11 probes zlib with check_include_file(zlib.h) and
+# check_library_exists(z compress2), and honours neither ZLIB_INCLUDE_DIR nor
+# ZLIB_LIBRARY. Without these paths the probe silently turns zlib off, and lld
+# then rejects the compressed sections in Google's libgcc_real.a (r20-r24). The
+# bundled copy is installed by now, so point both probes at it.
+CROSS_CFLAGS="$CROSS_CFLAGS -I$INSTALL_DIR/include -L$INSTALL_DIR/lib"
+CROSS_CXXFLAGS="$CROSS_CXXFLAGS -I$INSTALL_DIR/include -L$INSTALL_DIR/lib"
+
 # Every probe has run by now, so this configure is the only one: what it is
 # handed is what gets built.
 # LLVM 13 and older probe zlib with check_library_exists(z ...) and link -lz, so
