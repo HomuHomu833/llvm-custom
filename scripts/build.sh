@@ -365,8 +365,13 @@ EXTRA_CMAKE_FLAGS=(${EXTRA_CMAKE_FLAGS:-})
 # compilers too. r24 already defaults to compiler-rt, and r20-r22 still ship
 # libgcc, so only r23 changes behaviour here.
 _ndk_tc="${NDK_DIR:-}/toolchains/llvm/prebuilt/linux-x86_64"
-if [ -d "$_ndk_tc" ] && ! find "$_ndk_tc" -name libgcc.a -print -quit 2>/dev/null | grep -q .; then
+WANT_COMPILER_RT=0
+# Capture find rather than piping it into grep -q: under pipefail an early-exiting
+# reader can fail the pipeline, which would flip this decision for r20-r22.
+if [ -d "$_ndk_tc" ] && [ -z "$(find "$_ndk_tc" -name libgcc.a -print -quit 2>/dev/null)" ]; then
+  WANT_COMPILER_RT=1
   EXTRA_CMAKE_FLAGS+=(-DCLANG_DEFAULT_RTLIB=compiler-rt)
+  log "NDK ships no libgcc.a: defaulting the driver to compiler-rt"
 fi
 unset _ndk_tc
 if [ "$SYSTEM_NAME" = Darwin ]; then
@@ -957,6 +962,12 @@ done
 log "Distribution: ${#DIST[@]} components"
 grep -qsE '^#define LLVM_ENABLE_ZLIB 1' "$BUILD_DIR"/include/llvm/Config/*.h || {
   echo "LLVM configured without zlib" >&2; exit 1; }
+# Same for the runtime default: the flag has to have survived into the cache, or
+# every Android link on r23 fails with -lgcc again.
+if [ "$WANT_COMPILER_RT" = 1 ]; then
+  grep -qsE '^CLANG_DEFAULT_RTLIB:[A-Z]*=compiler-rt$' "$BUILD_DIR/CMakeCache.txt" || {
+    echo "CLANG_DEFAULT_RTLIB=compiler-rt did not reach the LLVM configure" >&2; exit 1; }
+fi
 
 log "Building + installing"
 cmake --build "$BUILD_DIR" --target install-distribution
@@ -1008,6 +1019,39 @@ if [ -d "$_ndk_bin" ]; then
     echo "install-distribution did not produce:$_missing" >&2; exit 1; }
   log "All of the NDK's tools accounted for"
 fi
+
+# Two defects only show up at link time, long after this script is done: lld
+# without zlib cannot read the compressed sections in Google's libgcc_real.a, and a
+# driver that still asks for a libgcc the NDK no longer ships fails every link.
+# Probe both on the tools just installed, when this host can run them (a foreign
+# architecture or windows toolchain cannot, and is skipped).
+post_install_smoke() {
+  local clang="$OUT/bin/clang" objcopy="$OUT/bin/llvm-objcopy" t out
+  if ! "$clang" --version >/dev/null 2>&1; then
+    log "Built clang cannot run on this host, post-install smoke checks skipped"; return 0
+  fi
+  t="$(mktemp -d)"
+  echo 'int f(int x){return x+1;}' > "$t/z.c"
+  if [ -x "$objcopy" ] && "$clang" -g -c "$t/z.c" -o "$t/z.o" >/dev/null 2>&1; then
+    out="$("$objcopy" --compress-debug-sections=zlib "$t/z.o" "$t/zc.o" 2>&1)" || {
+      echo "installed llvm-objcopy cannot compress debug sections, so LLVM has no zlib: $out" >&2
+      rm -rf "$t"; return 1; }
+    log "zlib smoke check passed"
+  else
+    log "No llvm-objcopy or no object for the default target, zlib smoke check skipped"
+  fi
+  if [ "${WANT_COMPILER_RT:-0}" = 1 ]; then
+    out="$("$clang" --target=aarch64-linux-android30 -static "$t/z.c" -### 2>&1 || true)"
+    if grep -q '"-lgcc"' <<<"$out" || ! grep -q 'libclang_rt.builtins' <<<"$out"; then
+      echo "installed clang still links -lgcc by default although the NDK has no libgcc" >&2
+      rm -rf "$t"; return 1
+    fi
+    log "compiler-rt default smoke check passed"
+  fi
+  rm -rf "$t"
+}
+
+post_install_smoke
 
 # strip installed binaries one at a time (the zig-as-llvm strip wrapper takes
 # only one file arg).
