@@ -420,8 +420,14 @@ done
 # On older trees a distribution build exports only listed components, so
 # polly's install(EXPORT LLVMExports) names LLVM libraries outside the export
 # set and generate fails. We don't ship libPolly; drop it from the export.
+# Only valid where Polly itself is built by add_polly_library (LLVM <= 10):
+# from LLVM 11 Polly is an add_llvm_pass_plugin that keeps its own export, so
+# stripping the macro's export leaves Polly exported while PollyISL is not and
+# configure fails ("Polly requires target PollyISL that is not in any export set").
 _pm="$SRC/polly/cmake/polly_macros.cmake"
-if [ -f "$_pm" ] && grep -q '^ *EXPORT LLVMExports$' "$_pm"; then
+_pl="$SRC/polly/lib/CMakeLists.txt"
+if [ -f "$_pm" ] && grep -qE '^ *add_polly_library\(Polly[ )]' "$_pl" 2>/dev/null &&
+   grep -q '^ *EXPORT LLVMExports$' "$_pm"; then
   sed -i '/^ *EXPORT LLVMExports$/d' "$_pm"
   log "polly: not exporting into LLVMExports"
 fi
