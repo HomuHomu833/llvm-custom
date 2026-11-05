@@ -219,7 +219,22 @@ case "$PLATFORM" in
     CROSS_STRIP="$TC/bin/strip"; CROSS_OBJCOPY="$TC/bin/objcopy"; CROSS_LD="$TC/bin/ld"
     case "$TARGET" in
       *musl*) CROSS_CFLAGS="-static -fno-sanitize=undefined"; CROSS_LDFLAGS="-static"; LLVM_STATIC=ON
-              [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true ;;
+              [ -d "$PATCHES_DIR/musl/zig" ] && cp -R "$PATCHES_DIR/musl/zig/." "$(dirname "$(command -v zig)")/" || true
+              # hexagon: a static executable crashes on thread-locals that use a
+              # dynamic TLS model (lld does no TLS relaxation there), and LLVM 9-14
+              # tools reached one at startup (PrettyStackTrace, signal handling).
+              # Give everything the initial-exec model a static link resolves to,
+              # including zig's PIC libc++abi (the same edit as make-ndk.sh).
+              if [ "$TARGET" = hexagon-linux-musl ]; then
+                CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=initial-exec"
+                for _f in "$(dirname "$(command -v zig)")"/lib/libcxxabi/src/cxa_exception_storage.cpp \
+                          "$(dirname "$(command -v zig)")"/lib/libcxxabi/src/cxa_thread_atexit.cpp; do
+                  [ -f "$_f" ] && ! grep -q _NDK_TLS_IE "$_f" || continue
+                  sed -i -e 's/^\(\s*\)static thread_local __cxa_eh_globals eh_globals;/\1_NDK_TLS_IE static thread_local __cxa_eh_globals eh_globals;/' \
+                         -e 's/^\(\s*\)__thread \(DtorList\* dtors = nullptr;\|bool dtors_alive = false;\)/\1_NDK_TLS_IE __thread \2/' \
+                         -e '0,/^#include/s//#if defined(__hexagon__)\n#define _NDK_TLS_IE __attribute__((tls_model("initial-exec")))\n#else\n#define _NDK_TLS_IE\n#endif\n#include/' "$_f"
+                done
+              fi ;;
       *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
     ;;
