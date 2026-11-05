@@ -417,6 +417,24 @@ s/.*\n  return C;/  static thread_local Context *C = nullptr;\n  if (!C)\n    C 
   fi
 done
 
+# lld before 11 resolves -u only after every input file is read, so an archive
+# member it pulls in lands after crtend_android.o. Old static bionic walks
+# .init_array from crtbegin's marker to crtend's 0 terminator, so that member's
+# constructor never runs: -fprofile-instr-generate binaries wrote no profile
+# (clang passes -u__llvm_profile_runtime). lld 11 adds the -u symbols before
+# the input files; do the same on older trees.
+_lld="$SRC/lld/ELF/Driver.cpp"
+if [ -f "$_lld" ] && ! grep -q 'Handle -u/--undefined before input files' "$_lld"; then
+  if grep -q '^  for (InputFile \*F : Files)$' "$_lld"; then
+    _u='  // Handle -u/--undefined before input files, so archive members they fetch\n  // keep their place in the link order (as lld 11 does).\n  for (StringRef S : Config->Undefined)\n    addUndefined<ELFT>(S)->IsUsedInRegularObj = false;\n\n'
+  else
+    _u='  // Handle -u/--undefined before input files, so archive members they fetch\n  // keep their place in the link order (as lld 11 does).\n  for (StringRef name : config->undefined) {\n    Undefined sym{nullptr, name, STB_GLOBAL, STV_DEFAULT, 0};\n    sym.isUsedInRegularObj = false;\n    symtab->addSymbol(sym);\n  }\n\n'
+  fi
+  sed -i "0,\|^  // Add all files to the symbol table\.|s||${_u}&|" "$_lld"
+  grep -q 'Handle -u/--undefined before input files' "$_lld" || { echo "lld: -u ordering edit did not apply" >&2; exit 1; }
+  log "lld: -u symbols resolved before input files"
+fi
+
 # On older trees a distribution build exports only listed components, so
 # polly's install(EXPORT LLVMExports) names LLVM libraries outside the export
 # set and generate fails. We don't ship libPolly; drop it from the export.
