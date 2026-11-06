@@ -691,6 +691,7 @@ fi
 # sparc64: zig links it with its own ELF linker instead of lld, and that put the
 # PT_LOADs out of order with .tdata read-only, so glibc's ld.so asserted
 # (rtld_setup_main_map) before main. Ask for lld like every other target.
+HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 instead of -Os" ;; esac
 case "$TARGET" in sparc64-*) log "sparc64: -fuse-ld=lld"; CROSS_LDFLAGS="$CROSS_LDFLAGS -fuse-ld=lld" ;; esac
 case "$TARGET" in
   mips*-linux-gnu*|mips64*-linux-*abin32)
@@ -823,6 +824,10 @@ args=(
   -DLLVM_TARGETS_TO_BUILD="${LLVM_TARGETS:-AArch64;ARM;BPF;RISCV;WebAssembly;X86}"
   -DCMAKE_BUILD_TYPE=MinSizeRel
   -DCMAKE_CROSSCOMPILING=True
+  # hexagon: at -Os the hexagon codegen miscompiles clang's parser (any "virtual
+  # void f() = 0;" is "expected expression"), so build it at -O1
+  ${HEXAGON_O1:+"-DCMAKE_C_FLAGS_MINSIZEREL=-O1 -DNDEBUG"}
+  ${HEXAGON_O1:+"-DCMAKE_CXX_FLAGS_MINSIZEREL=-O1 -DNDEBUG"}
   -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME"
   -DLLVM_DEFAULT_TARGET_TRIPLE="$TRIPLE"
   -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC"
