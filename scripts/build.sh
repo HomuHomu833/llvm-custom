@@ -685,14 +685,15 @@ if [ "$LLVM_LTO" != OFF ]; then
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
 HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 instead of -Os" ;; esac
-# mips glibc (dynamic) and n32 hosts: once the GOT outgrows its 16-bit offsets,
-# lld splits it (multi-GOT) and some call slots came out 0 with no dynamic
-# relocation, so clang called NULL (profile instrumentation, n32 startup). -mxgot
-# addresses the GOT with 32-bit offsets and keeps it in one piece.
+# mips glibc (dynamic) and n32 hosts: when a non-PIC object (LLVM) and a PIC one
+# (zlib) both call a libc function, lld gives the PIC caller a GOT slot that no
+# dynamic relocation fills, so clang called NULL (zlib's malloc under profile
+# instrumentation, n32 startup). Build everything PIC; -mxgot keeps the GOT,
+# grown by that, in one piece instead of lld's multi-GOT.
 case "$TARGET" in
   mips*-linux-gnu*|mips64*-linux-*abin32)
-    log "mips: -mxgot (no multi-GOT)"
-    CROSS_CFLAGS="$CROSS_CFLAGS -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -mxgot" ;;
+    log "mips: -fPIC -mxgot"
+    CROSS_CFLAGS="$CROSS_CFLAGS -fPIC -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fPIC -mxgot" ;;
 esac
 
 # --- vendor string ----------------------------------------------------------
