@@ -684,15 +684,11 @@ if [ "$LLVM_LTO" != OFF ]; then
   LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
+HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 instead of -Os" ;; esac
 # mips glibc (dynamic) and n32 hosts: once the GOT outgrows its 16-bit offsets,
 # lld splits it (multi-GOT) and some call slots came out 0 with no dynamic
 # relocation, so clang called NULL (profile instrumentation, n32 startup). -mxgot
 # addresses the GOT with 32-bit offsets and keeps it in one piece.
-# sparc64: zig links it with its own ELF linker instead of lld, and that put the
-# PT_LOADs out of order with .tdata read-only, so glibc's ld.so asserted
-# (rtld_setup_main_map) before main. Ask for lld like every other target.
-HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 instead of -Os" ;; esac
-case "$TARGET" in sparc64-*) log "sparc64: -fuse-ld=lld"; CROSS_LDFLAGS="$CROSS_LDFLAGS -fuse-ld=lld" ;; esac
 case "$TARGET" in
   mips*-linux-gnu*|mips64*-linux-*abin32)
     log "mips: -mxgot (no multi-GOT)"
