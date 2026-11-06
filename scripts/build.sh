@@ -212,6 +212,19 @@ case "$PLATFORM" in
     "$CROSS_CC" -c "$PATCHES_DIR/bionic/tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
     CROSS_LDFLAGS="$CROSS_LDFLAGS $BUILD_DIR/bionic_tls_align.o"
     nm "$BUILD_DIR/bionic_tls_align.o" 2>/dev/null | grep -q __bionic_tls_align_anchor && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-u,__bionic_tls_align_anchor"
+    # Static bionic runs .init_array from crtbegin's -1 marker up to crtend's 0, and
+    # LTO output can land after crtend_android.o, so LLVM's own constructors (cl::opt,
+    # target registration) never ran and every compile failed with "Unknown command
+    # line argument". lld sorts .init_array.N by N: give crtbegin's array 0 and
+    # crtend's 99999 so they always end up first and last. -B makes clang use them.
+    _crt="$BUILD_DIR/bionic_crt"; mkdir -p "$_crt"
+    _oc="$TC/bin/llvm-objcopy"; [ -x "$_oc" ] || _oc="$CROSS_OBJCOPY"
+    for _o in crtbegin_static.o:0 crtend_android.o:99999; do
+      _src=$("$CROSS_CC" -print-file-name="${_o%%:*}")
+      "$_oc" --rename-section .init_array=".init_array.${_o#*:}" --rename-section .fini_array=".fini_array.${_o#*:}" \
+        "$_src" "$_crt/${_o%%:*}"
+    done
+    CROSS_LDFLAGS="$CROSS_LDFLAGS -B$_crt"
     ;;
   linux)
     TC="/opt/zig-as-llvm"
@@ -671,6 +684,15 @@ if [ "$LLVM_LTO" != OFF ]; then
   LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
+# mips glibc (dynamic) and n32 hosts: once the GOT outgrows its 16-bit offsets,
+# lld splits it (multi-GOT) and some call slots came out 0 with no dynamic
+# relocation, so clang called NULL (profile instrumentation, n32 startup). -mxgot
+# addresses the GOT with 32-bit offsets and keeps it in one piece.
+case "$TARGET" in
+  mips*-linux-gnu*|mips64*-linux-*abin32)
+    log "mips: -mxgot (no multi-GOT)"
+    CROSS_CFLAGS="$CROSS_CFLAGS -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -mxgot" ;;
+esac
 
 # --- vendor string ----------------------------------------------------------
 # llvm_android's shape with our identity in it:
