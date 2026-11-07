@@ -692,8 +692,10 @@ HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 inst
 # grown by that, in one piece instead of lld's multi-GOT.
 case "$TARGET" in
   mips*-linux-gnu*|mips64*-linux-*abin32)
-    log "mips: -fPIC -mxgot"
-    CROSS_CFLAGS="$CROSS_CFLAGS -fPIC -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fPIC -mxgot" ;;
+    # lld picks the LTO relocation model from the link, not -fPIC: link PIE too.
+    log "mips: -fPIC -mxgot, PIE link"
+    CROSS_CFLAGS="$CROSS_CFLAGS -fPIC -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fPIC -mxgot"
+    CROSS_LDFLAGS="$CROSS_LDFLAGS -fPIE -pie" ;;
 esac
 
 # --- vendor string ----------------------------------------------------------
