@@ -695,7 +695,7 @@ case "$TARGET" in
     # lld picks the LTO relocation model from the link, not -fPIC: link PIE too.
     log "mips: -fPIC -mxgot, PIE link"
     CROSS_CFLAGS="$CROSS_CFLAGS -fPIC -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fPIC -mxgot"
-    CROSS_LDFLAGS="$CROSS_LDFLAGS -fPIE -pie" ;;
+    CROSS_LDFLAGS="$CROSS_LDFLAGS -fPIE -pie"; LLVM_PIC=ON ;;   # OFF has CMake append -no-pie
 esac
 
 # --- vendor string ----------------------------------------------------------
