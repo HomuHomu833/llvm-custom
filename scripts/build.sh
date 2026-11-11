@@ -684,7 +684,6 @@ if [ "$LLVM_LTO" != OFF ]; then
   LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
-HEXAGON_O1=""; case "$TARGET" in hexagon-*) HEXAGON_O1=1; log "hexagon: -O1 instead of -Os" ;; esac
 # mips glibc (dynamic) and n32 hosts: when a non-PIC object (LLVM) and a PIC one
 # (zlib) both call a libc function, lld gives the PIC caller a GOT slot that no
 # dynamic relocation fills, so clang called NULL (zlib's malloc under profile
@@ -823,10 +822,6 @@ args=(
   -DLLVM_TARGETS_TO_BUILD="${LLVM_TARGETS:-AArch64;ARM;BPF;RISCV;WebAssembly;X86}"
   -DCMAKE_BUILD_TYPE=MinSizeRel
   -DCMAKE_CROSSCOMPILING=True
-  # hexagon: at -Os the hexagon codegen miscompiles clang's parser (any "virtual
-  # void f() = 0;" is "expected expression"), so build it at -O1
-  ${HEXAGON_O1:+"-DCMAKE_C_FLAGS_MINSIZEREL=-O1 -DNDEBUG"}
-  ${HEXAGON_O1:+"-DCMAKE_CXX_FLAGS_MINSIZEREL=-O1 -DNDEBUG"}
   -DCMAKE_SYSTEM_NAME="$SYSTEM_NAME"
   -DLLVM_DEFAULT_TARGET_TRIPLE="$TRIPLE"
   -DCMAKE_C_COMPILER="$CROSS_CC" -DCMAKE_CXX_COMPILER="$CROSS_CXX" -DCMAKE_ASM_COMPILER="$CROSS_CC"
