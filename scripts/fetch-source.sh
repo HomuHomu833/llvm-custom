@@ -326,6 +326,59 @@ apply_set() {
 [ -n "${PATCHSET:-}" ] && apply_set "$PATCHES_DIR/$PATCHSET/llvm/$LLVM_REV" loose
 apply_set "$PATCHES_DIR/global/llvm/$LLVM_REV" strict
 
+# loongarch64 musl sf/f32 hosts: LLVM 20 added the muslsf and muslf32 environments (the soft-float
+# and single-float ABIs, as gnusf and gnuf32 already were). Trees before that cannot parse such a
+# triple, so clang built from them refuses to start with it as its default. Backport the 20.1 change:
+# the two enumerators, their names and parsing, isMusl(), and the three places that pick the LoongArch
+# ABI / GCC triple / backend ABI from the environment. Idempotent; a tree with the files but without
+# the edit points fails here rather than building a clang that cannot start.
+backport_loongarch_musl_envs() {
+  local th="$SRC/llvm/include/llvm/TargetParser/Triple.h"
+  [ -f "$th" ] || th="$SRC/llvm/include/llvm/ADT/Triple.h"
+  [ -f "$th" ] && [ -f "$SRC/clang/lib/Driver/ToolChains/Arch/LoongArch.cpp" ] || return 0
+  grep -qw MuslSF "$th" && return 0
+  log "backporting the loongarch musl sf/f32 environments (LLVM 20)"
+  python3 - "$SRC" "$th" <<'PY'
+import re, sys
+src, th = sys.argv[1], sys.argv[2]
+def edit(path, subs):
+    s = open(path).read()
+    for old, new in subs:
+        if old not in s:
+            sys.exit("loongarch musl backport: %s: edit point not found: %r" % (path, old.strip()[:70]))
+        s = s.replace(old, new, 1)
+    open(path, "w").write(s)
+edit(th, [
+    ("    MuslEABIHF,\n    MuslX32,\n", "    MuslEABIHF,\n    MuslF32,\n    MuslSF,\n    MuslX32,\n"),
+    ("           getEnvironment() == Triple::MuslEABIHF ||\n           getEnvironment() == Triple::MuslX32 ||\n",
+     "           getEnvironment() == Triple::MuslEABIHF ||\n           getEnvironment() == Triple::MuslF32 ||\n"
+     "           getEnvironment() == Triple::MuslSF ||\n           getEnvironment() == Triple::MuslX32 ||\n"),
+])
+tcpp = src + "/llvm/lib/TargetParser/Triple.cpp"
+import os
+if not os.path.exists(tcpp):
+    tcpp = src + "/llvm/lib/Support/Triple.cpp"
+edit(tcpp, [
+    ('  case MuslEABIHF: return "musleabihf";\n', '  case MuslEABIHF: return "musleabihf";\n  case MuslF32: return "muslf32";\n  case MuslSF: return "muslsf";\n'),
+    ('      .StartsWith("muslx32", Triple::MuslX32)\n',
+     '      .StartsWith("muslf32", Triple::MuslF32)\n      .StartsWith("muslsf", Triple::MuslSF)\n      .StartsWith("muslx32", Triple::MuslX32)\n'),
+])
+edit(src + "/llvm/lib/Target/LoongArch/MCTargetDesc/LoongArchBaseInfo.cpp", [
+    ("  case llvm::Triple::EnvironmentType::GNUSF:\n", "  case llvm::Triple::EnvironmentType::GNUSF:\n  case llvm::Triple::EnvironmentType::MuslSF:\n"),
+    ("  case llvm::Triple::EnvironmentType::GNUF32:\n", "  case llvm::Triple::EnvironmentType::GNUF32:\n  case llvm::Triple::EnvironmentType::MuslF32:\n"),
+])
+edit(src + "/clang/lib/Driver/ToolChains/Arch/LoongArch.cpp", [
+    ("  case llvm::Triple::GNUSF:\n", "  case llvm::Triple::GNUSF:\n  case llvm::Triple::MuslSF:\n"),
+    ("  case llvm::Triple::GNUF32:\n", "  case llvm::Triple::GNUF32:\n  case llvm::Triple::MuslF32:\n"),
+])
+edit(src + "/clang/lib/Driver/ToolChains/Linux.cpp", [
+    ("    case llvm::Triple::GNUSF:\n", "    case llvm::Triple::GNUSF:\n    case llvm::Triple::MuslSF:\n"),
+    ("    case llvm::Triple::GNUF32:\n", "    case llvm::Triple::GNUF32:\n    case llvm::Triple::MuslF32:\n"),
+])
+PY
+}
+backport_loongarch_musl_envs
+
 # LLVM <= 14 (r25 and older) relies on includes newer toolchains no longer pull
 # in transitively: GCC 13 dropped <cstdint>, llvm-mingw's libc++ splits
 # <exception> and <system_error> into granular headers. sed rather than
