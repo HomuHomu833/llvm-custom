@@ -337,6 +337,9 @@ backport_loongarch_musl_envs() {
   [ -f "$th" ] || th="$SRC/llvm/include/llvm/ADT/Triple.h"
   [ -f "$th" ] && [ -f "$SRC/clang/lib/Driver/ToolChains/Arch/LoongArch.cpp" ] || return 0
   grep -qw MuslSF "$th" && return 0
+  for _f in llvm/lib/Target/LoongArch/MCTargetDesc/LoongArchBaseInfo.cpp clang/lib/Driver/ToolChains/Arch/LoongArch.cpp clang/lib/Driver/ToolChains/Linux.cpp; do
+    grep -q GNUF32 "$SRC/$_f" 2>/dev/null || { log "loongarch musl backport: tree predates the sf/f32 ABIs, skipping"; return 0; }
+  done
   log "backporting the loongarch musl sf/f32 environments (LLVM 20)"
   python3 - "$SRC" "$th" <<'PY'
 import re, sys
