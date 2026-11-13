@@ -250,6 +250,12 @@ case "$PLATFORM" in
               fi ;;
       *)      CROSS_LDFLAGS="-static-libstdc++ -static-libgcc" ;;
     esac
+    # x32: zig's lld relaxes general-dynamic TLS to local-exec one byte off, which
+    # overwrites the preceding instruction (ld.lld segfaults at its first
+    # thread-local access). local-exec never emits the sequence.
+    case "$TARGET" in
+      *x32) CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=local-exec"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -ftls-model=local-exec" ;;
+    esac
     ;;
   bsd)
     TC="/opt/zig-as-llvm"
