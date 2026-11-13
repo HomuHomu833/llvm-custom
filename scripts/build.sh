@@ -684,13 +684,13 @@ if [ "$LLVM_LTO" != OFF ]; then
   LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-1}"
   log "LTO: $LLVM_LTO ($LINK_JOBS parallel link job(s), $(nproc) cpus)"
 fi
-# mips glibc (dynamic) and n32 hosts: when a non-PIC object (LLVM) and a PIC one
+# mips glibc (dynamic) hosts: when a non-PIC object (LLVM) and a PIC one
 # (zlib) both call a libc function, lld gives the PIC caller a GOT slot that no
 # dynamic relocation fills, so clang called NULL (zlib's malloc under profile
-# instrumentation, n32 startup). Build everything PIC; -mxgot keeps the GOT,
+# instrumentation). Build everything PIC; -mxgot keeps the GOT,
 # grown by that, in one piece instead of lld's multi-GOT.
 case "$TARGET" in
-  mips*-linux-gnu*|mips64*-linux-*abin32)
+  mips*-linux-gnu*)
     # lld picks the LTO relocation model from the link, not -fPIC: link PIE too.
     log "mips: -fPIC -mxgot, PIE link"
     CROSS_CFLAGS="$CROSS_CFLAGS -fPIC -mxgot"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -fPIC -mxgot"
