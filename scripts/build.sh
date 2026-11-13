@@ -318,19 +318,6 @@ case "$PLATFORM" in
 esac
 export CROSS_CC CROSS_CXX CROSS_AR CROSS_RANLIB CROSS_STRIP CROSS_OBJCOPY CROSS_LD
 
-# The musl sf/f32/abin32 environments arrived with LLVM 20. An older Triple.h cannot parse
-# them, and clang then refuses to start ("version 'sf' in target triple ... is invalid")
-# with such a default triple: fall back to the plain musl triple, as the tree can only name that.
-case "$TARGET" in
-  loongarch64-linux-muslsf|loongarch64-linux-muslf32|mips64*-linux-muslabin32)
-    case "$TARGET" in *muslsf) _env=MuslSF ;; *muslf32) _env=MuslF32 ;; *) _env=MuslABIN32 ;; esac
-    _th=$(ls "$SRC/llvm/include/llvm/TargetParser/Triple.h" "$SRC/llvm/include/llvm/ADT/Triple.h" 2>/dev/null | head -n1)
-    if [ -n "$_th" ] && ! grep -qw "$_env" "$_th"; then
-      TRIPLE="${TARGET%-linux-*}-linux-musl"
-      log "$_env: not in this tree's Triple.h, default target triple $TRIPLE instead of $TARGET"
-    fi ;;
-esac
-
 # Extra cmake flags for zstd + LLVM: env-supplied plus Darwin SDK/libtool/arch
 # pins so CMake doesn't probe a host Xcode. Other platforms need none.
 # shellcheck disable=SC2206  # intentional word-splitting of the env var
