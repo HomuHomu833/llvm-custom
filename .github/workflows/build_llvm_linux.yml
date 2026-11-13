@@ -55,8 +55,7 @@ jobs:
       only: ${{ inputs.only }}
       # loongarch32-linux-gnu, loongarch32-linux-gnusf, sparc-linux-gnu
       # broken: mips64-linux-gnuabin32, mips64-linux-muslabin32, mips64el-linux-gnuabin32,
-      #   mips64el-linux-muslabin32 (zig's LLVM skips the pointer sign-extension for a struct
-      #   passed in one register on n32, so the built tools crash at startup)
+      #   mips64el-linux-muslabin32
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
          "aarch64_be-linux-musl", "arm-linux-gnueabi", "arm-linux-gnueabihf",
