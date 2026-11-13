@@ -350,9 +350,9 @@ def edit(path, subs):
     open(path, "w").write(s)
 edit(th, [
     ("    MuslEABIHF,\n    MuslX32,\n", "    MuslEABIHF,\n    MuslF32,\n    MuslSF,\n    MuslX32,\n"),
-    ("           getEnvironment() == Triple::MuslEABIHF ||\n           getEnvironment() == Triple::MuslX32 ||\n",
+    ("           getEnvironment() == Triple::MuslEABIHF ||\n           getEnvironment() == Triple::MuslX32",
      "           getEnvironment() == Triple::MuslEABIHF ||\n           getEnvironment() == Triple::MuslF32 ||\n"
-     "           getEnvironment() == Triple::MuslSF ||\n           getEnvironment() == Triple::MuslX32 ||\n"),
+     "           getEnvironment() == Triple::MuslSF ||\n           getEnvironment() == Triple::MuslX32"),
 ])
 tcpp = src + "/llvm/lib/TargetParser/Triple.cpp"
 import os
