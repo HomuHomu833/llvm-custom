@@ -255,6 +255,10 @@ case "$PLATFORM" in
     # thread-local access). local-exec never emits the sequence.
     case "$TARGET" in
       *x32) CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=local-exec"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -ftls-model=local-exec" ;;
+      # mips64 musl: an initial-exec access read its GOT slot through a register
+      # that no longer held the GOT base, so ld.lld crashed on its first link.
+      # The executables are static, local-exec needs no GOT.
+      mips64*-linux-musl*) CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=local-exec"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -ftls-model=local-exec" ;;
     esac
     ;;
   bsd)
