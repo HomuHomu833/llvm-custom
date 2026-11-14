@@ -177,6 +177,9 @@ export ZIG_TARGET="$TARGET"
 # glibc's __*ieee128 printf entries, which arrived in 2.32.
 case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
 CROSS_CFLAGS="-fno-sanitize=undefined"; CROSS_CXXFLAGS="$CROSS_CFLAGS"; CROSS_LDFLAGS=""; SYSTEM_NAME="Linux"; TRIPLE="$TARGET"
+# mips64 musl n64: trees without the muslabi64 environment read "abi64" as an OS version and
+# reject the triple, so clang printed an error for every command. Plain musl is n64 already.
+case "$TARGET" in *-linux-muslabi64) cat "$SRC"/llvm/include/llvm/TargetParser/Triple.h "$SRC"/llvm/include/llvm/ADT/Triple.h 2>/dev/null | grep -q MuslABI64 || TRIPLE="${TARGET%abi64}" ;; esac
 # LLVM_BUILD_STATIC: ON for fully-static targets (bionic/musl), OFF otherwise.
 LLVM_STATIC=OFF
 # LLVM_ENABLE_PIC: OFF everywhere except macOS. arm64/arm64e Mach-O *requires* PIE.
