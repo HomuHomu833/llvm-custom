@@ -278,8 +278,9 @@ case "$PLATFORM" in
     # died at startup with "Fatal error" under zig's default -z now.
     [ "$TARGET" = riscv64-netbsd-none ] && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-z,lazy"
     # i386 NetBSD: libc's arc4random stores SSE values to 16-byte aligned stack
-    # slots, but zig keeps only 4-byte alignment, so clang crashed in it.
-    [ "$TARGET" = x86-netbsd-none ] && { CROSS_CFLAGS="$CROSS_CFLAGS -mstack-alignment=16"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -mstack-alignment=16"; }
+    # slots, but zig keeps only 4-byte alignment, so clang crashed in it. libc
+    # still calls back with 4-byte alignment, so every function realigns too.
+    [ "$TARGET" = x86-netbsd-none ] && { CROSS_CFLAGS="$CROSS_CFLAGS -mstackrealign -mstack-alignment=16"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -mstackrealign -mstack-alignment=16"; }
     ;;
   macos)
     # Darwin targets use osxcross (cctools-port + clang wrappers).
