@@ -266,6 +266,10 @@ case "$PLATFORM" in
       netbsd)  SYSTEM_NAME=NetBSD ;;
       openbsd) SYSTEM_NAME=OpenBSD ;;
     esac
+    # riscv64 NetBSD: crtbegin calls the weak undefined __register_frame_info
+    # through the PLT, and ld.elf_so fails to bind that eagerly, so every tool
+    # died at startup with "Fatal error" under zig's default -z now.
+    [ "$TARGET" = riscv64-netbsd-none ] && CROSS_LDFLAGS="$CROSS_LDFLAGS -Wl,-z,lazy"
     ;;
   macos)
     # Darwin targets use osxcross (cctools-port + clang wrappers).
