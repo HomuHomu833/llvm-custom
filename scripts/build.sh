@@ -242,7 +242,9 @@ case "$PLATFORM" in
               # Give everything the initial-exec model a static link resolves to,
               # including zig's PIC libc++abi (the same edit as make-ndk.sh).
               if [ "$TARGET" = hexagon-linux-musl ]; then
-                CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=initial-exec"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -ftls-model=initial-exec"
+                # Without LTO lld is past the +-8 MiB reach of a direct call. The cpu
+                # feature, unlike -mlong-calls, reaches zig's own runtime libraries too.
+                CROSS_CFLAGS="$CROSS_CFLAGS -ftls-model=initial-exec -mcpu=baseline+long_calls"; CROSS_CXXFLAGS="$CROSS_CXXFLAGS -ftls-model=initial-exec -mcpu=baseline+long_calls"
                 for _f in "$(dirname "$(command -v zig)")"/lib/libcxxabi/src/cxa_exception_storage.cpp \
                           "$(dirname "$(command -v zig)")"/lib/libcxxabi/src/cxa_thread_atexit.cpp; do
                   [ -f "$_f" ] && ! grep -q _NDK_TLS_IE "$_f" || continue
