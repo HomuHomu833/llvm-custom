@@ -605,15 +605,6 @@ if [ "$LLVM_LTO" != OFF ] &&
   log "LTO: soft-float mips, lld rejects the LTO objects, building without"
   LLVM_LTO=OFF
 fi
-# Hexagon gets none either: under LTO codegen its backend emits something lld
-# cannot name, and it dies with a bare "unknown relocation name". Only at
-# llvm-tblgen size, so the probes below link their way straight past it and no
-# program small enough to be worth compiling every build will reproduce it.
-if [ "$LLVM_LTO" != OFF ] &&
-   case "$TARGET" in hexagon-*) true ;; *) false ;; esac; then
-  log "LTO: hexagon, lld cannot name the relocations LTO codegen emits, building without"
-  LLVM_LTO=OFF
-fi
 # From r29, these ARM32 targets die on "Constant Island pass failed to
 # converge" compiling X86Disassembler.cpp, with or without LTO.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
