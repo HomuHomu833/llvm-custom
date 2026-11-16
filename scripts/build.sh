@@ -610,7 +610,7 @@ fi
 # llvm-tblgen size, so the probes below link their way straight past it and no
 # program small enough to be worth compiling every build will reproduce it.
 if [ "$LLVM_LTO" != OFF ] &&
-   "$CROSS_CC" $CROSS_CFLAGS -dM -E - </dev/null 2>/dev/null | grep -qi '__hexagon__'; then
+   case "$TARGET" in hexagon-*) true ;; *) false ;; esac; then
   log "LTO: hexagon, lld cannot name the relocations LTO codegen emits, building without"
   LLVM_LTO=OFF
 fi
