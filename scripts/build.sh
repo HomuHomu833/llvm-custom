@@ -605,6 +605,13 @@ if [ "$LLVM_LTO" != OFF ] &&
   log "LTO: soft-float mips, lld rejects the LTO objects, building without"
   LLVM_LTO=OFF
 fi
+# Hexagon before r26 (LLVM 11-15): LTO drops the out-of-line BPFCoreSharedInfo
+# members and clang-check fails to link them.
+if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -lt 26 ] &&
+   case "$TARGET" in hexagon-*) true ;; *) false ;; esac; then
+  log "LTO: hexagon before r26, LTO drops BPFCoreSharedInfo members, building without"
+  LLVM_LTO=OFF
+fi
 # From r29, these ARM32 targets die on "Constant Island pass failed to
 # converge" compiling X86Disassembler.cpp, with or without LTO.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
