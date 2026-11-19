@@ -613,6 +613,13 @@ if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -lt 26 ] &&
   log "LTO: hexagon before r26, building at C++17 for the BPFCoreSharedInfo members"
   EXTRA_CMAKE_FLAGS+=(-DCMAKE_CXX_STANDARD=17)
 fi
+# Hexagon from r27: with ThinLTO llvm-dwarfdump and llvm-symbolizer segfault on any
+# object with debug info. Without it they work and FastISel does not crash.
+if [ "$LLVM_LTO" != OFF ] && [ "${NDK_VERSION:-0}" -ge 27 ] &&
+   case "$TARGET" in hexagon-*) true ;; *) false ;; esac; then
+  log "LTO: hexagon from r27, ThinLTO breaks the DWARF readers, building without"
+  LLVM_LTO=OFF
+fi
 # From r29, these ARM32 targets die on "Constant Island pass failed to
 # converge" compiling X86Disassembler.cpp, with or without LTO.
 if [ -n "${LLVM_PROFDATA_FILE:-}" ] && [ "${NDK_VERSION:-0}" -ge 29 ] &&
